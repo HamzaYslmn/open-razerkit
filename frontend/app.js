@@ -20,6 +20,14 @@ const hex4 = (p) => p.toString(16).padStart(4, "0");
 const clamp = (n) => Math.max(0, Math.min(255, Math.round(Number(n) || 0)));
 const rgbToHex = (rgb) => "#" + rgb.map((c) => clamp(c).toString(16).padStart(2, "0")).join("");
 
+// --- local persistence (localStorage) ---------------------------------------
+// The Razer protocol doesn't reliably expose the *stored* color for readback,
+// so we remember the last-applied state here instead of asking the device.
+const STORE_KEY = "razer-rgb";
+const store = (() => { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch { return {}; } })();
+store.perDevice = store.perDevice || {};   // hex pid -> { rgb, action }
+function persist() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch { /* private mode / full */ } }
+
 // --- color parsing (port of core.parse_color) --------------------------------
 function parseColor(s) {
   const t = String(s).trim().replace(/^#/, "").toLowerCase();
@@ -95,6 +103,7 @@ async function requestDevices() {
     toast(`Granted ${nm}, but Chrome exposes no usable HID collection for it ` +
           `(its control interface is a protected mouse/keyboard collection). Use the CLI for this one.`, "err");
   } else {
+    reflectDeviceColor(currentPid);   // show this device's last-known color
     toast(`Connected: ${getDevice(currentPid)?.name || granted[0].productName || hex4(pid)}`, "ok");
   }
 }
@@ -144,10 +153,28 @@ async function applyAction(action, rgb) {
   try {
     await sendReports(currentPid, reports);
     setStatus(`OK  ${label} -> ${describe(action, rgb)}`, "ok");
+    const key = hex4(currentPid);                       // remember this device's state
+    store.perDevice[key] = { rgb: rgb ? rgb.map(clamp) : store.perDevice[key]?.rgb, action };
+    if (rgb) store.lastRGB = rgb.map(clamp);
+    store.lastPid = currentPid;
+    persist();
   } catch (e) { setStatus(`${label}: ${e.message}`, "err"); toast(e.message, "err"); }
 }
 
+// --- debounced apply ---------------------------------------------------------
+const DEBOUNCE_MS = 500;          // apply this long after the last edit (tune to taste)
+let applyTimer = null;
+function applyDebounced(action, rgb) {
+  clearTimeout(applyTimer);
+  applyTimer = setTimeout(() => applyAction(action, rgb), DEBOUNCE_MS);
+}
+function applyNow(action, rgb) {   // discrete actions (swatch/effect/commit) -- no wait
+  clearTimeout(applyTimer);
+  applyAction(action, rgb);
+}
+
 // --- color sync (sliders <-> hex <-> rgb <-> picker <-> preview) -------------
+// apply: false = preview only, true = preview + debounced apply (live editing).
 function syncColor(rgb, apply) {
   currentRGB = rgb.map(clamp);
   const hex = rgbToHex(currentRGB);
@@ -157,7 +184,7 @@ function syncColor(rgb, apply) {
   $("picker").value = hex;
   $("preview").style.background = hex;
   $("previewHex").textContent = `${hex.toUpperCase()}  ·  rgb(${currentRGB.join(", ")})`;
-  if (apply) applyAction("static", currentRGB);
+  if (apply) applyDebounced("static", currentRGB);
 }
 
 // --- rendering ---------------------------------------------------------------
@@ -172,7 +199,8 @@ function renderDevices() {
     return;
   }
   if (currentPid == null || !devicesByPid.has(currentPid))
-    currentPid = pids.includes(DEFAULT_PID) ? DEFAULT_PID : pids[0];
+    currentPid = (store.lastPid && devicesByPid.has(store.lastPid)) ? store.lastPid
+               : pids.includes(DEFAULT_PID) ? DEFAULT_PID : pids[0];
   sel.innerHTML = pids.map((p) => {
     const d = getDevice(p), star = p === DEFAULT_PID ? " ★" : "";
     return `<option value="${p}" ${p === currentPid ? "selected" : ""}>${d ? d.name : "unknown model"} (1532:${hex4(p)})${star}</option>`;
@@ -189,6 +217,11 @@ async function renderMeta() {
   const hz = await readHz(currentPid);
   if (hz && getDevice(currentPid) === d) m.textContent = base + `  ·  ${hz} Hz`;
 }
+function reflectDeviceColor(pid) {
+  // Show this device's last-known color (from localStorage) -- preview only, no apply.
+  const d = store.perDevice[hex4(pid)];
+  if (d && Array.isArray(d.rgb)) syncColor(d.rgb.map(clamp), false);
+}
 function toggleEffects() {
   const d = getDevice(currentPid);
   const canWave = d && d.method !== "custom" && d.method !== "logo";   // single-LED can't wave
@@ -204,7 +237,7 @@ function buildColorGrid() {
             style="background:rgb(${rgb.join(",")})" data-rgb="${rgb.join(",")}">${name}</button>`;
   }).join("");
   $("colorGrid").querySelectorAll("button").forEach((b) =>
-    b.addEventListener("click", () => syncColor(b.dataset.rgb.split(",").map(Number), true)));
+    b.addEventListener("click", () => { syncColor(b.dataset.rgb.split(",").map(Number), false); applyNow("static", currentRGB); }));
 }
 function buildSliders() {
   const meta = [["R", "#ef4444"], ["G", "#22c55e"], ["B", "#3b82f6"]];
@@ -217,44 +250,67 @@ function buildSliders() {
   const readSliders = () => ["R", "G", "B"].map((ch) => clamp($("slider" + ch).value));
   const readNums = () => ["R", "G", "B"].map((ch) => clamp($("num" + ch).value));
   ["R", "G", "B"].forEach((ch) => {
-    // drag: live preview only; release: apply (avoid flooding HID while dragging)
-    $("slider" + ch).addEventListener("input", () => syncColor(readSliders(), false));
-    $("slider" + ch).addEventListener("change", () => syncColor(readSliders(), true));
-    $("num" + ch).addEventListener("input", () => syncColor(readNums(), false));
-    $("num" + ch).addEventListener("change", () => syncColor(readNums(), true));
+    // drag: live preview + debounced apply (fires 500ms after you stop moving);
+    // release: apply immediately so the final value lands without waiting.
+    $("slider" + ch).addEventListener("input", () => syncColor(readSliders(), true));
+    $("slider" + ch).addEventListener("change", () => applyNow("static", currentRGB));
+    $("num" + ch).addEventListener("input", () => syncColor(readNums(), true));
+    $("num" + ch).addEventListener("change", () => applyNow("static", currentRGB));
   });
+}
+
+// --- sponsor popup -----------------------------------------------------------
+function wireSponsor() {
+  const el = $("sponsor");
+  if (!el) return;
+  if (store.sponsorDismissed) { el.remove(); return; }   // shown once, then never nags
+  $("sponsorClose").addEventListener("click", () => { el.remove(); store.sponsorDismissed = true; persist(); });
 }
 
 // --- init --------------------------------------------------------------------
 function init() {
+  wireSponsor();    // independent of WebHID support
   if (!navigator.hid) {
     $("unsupported").classList.remove("hidden");
-    document.querySelectorAll("button, select, input").forEach((e) => (e.disabled = true));
+    document.querySelectorAll("main button, main select, main input").forEach((e) => (e.disabled = true));
     return;
   }
+  // restore last session from localStorage
+  save = store.save ?? true;
+  $("saveToggle").checked = save;
+  if (typeof store.txn === "string") $("txnInput").value = store.txn;
+  if (typeof store.led === "string") $("ledInput").value = store.led;
+  if (Array.isArray(store.lastRGB)) currentRGB = store.lastRGB.map(clamp);
+
   buildColorGrid();
   buildSliders();
   syncColor(currentRGB, false);
 
   $("connectBtn").addEventListener("click", requestDevices);
-  $("deviceSelect").addEventListener("change", (e) => { currentPid = +e.target.value; renderMeta(); });
-  $("saveToggle").addEventListener("change", (e) => { save = e.target.checked; });
-  $("picker").addEventListener("input", () => syncColor(parseColor($("picker").value), false));
-  $("picker").addEventListener("change", () => syncColor(parseColor($("picker").value), true));
+  $("deviceSelect").addEventListener("change", (e) => { currentPid = +e.target.value; renderMeta(); reflectDeviceColor(currentPid); });
+  $("saveToggle").addEventListener("change", (e) => { save = e.target.checked; store.save = save; persist(); });
+  $("txnInput").addEventListener("change", () => { store.txn = $("txnInput").value.trim(); persist(); });
+  $("ledInput").addEventListener("change", () => { store.led = $("ledInput").value.trim(); persist(); });
+  $("picker").addEventListener("input", () => syncColor(parseColor($("picker").value), true));
+  $("picker").addEventListener("change", () => applyNow("static", currentRGB));
 
-  const fromText = (id) => () => {
-    try { syncColor(parseColor($(id).value), true); }
+  // Live text: apply ~500ms after the last keystroke -- no need to leave the field.
+  // Partial/invalid input while typing is ignored silently; Enter/blur commits + reports errors.
+  const liveText = (id) => () => { let rgb; try { rgb = parseColor($(id).value); } catch { return; } syncColor(rgb, true); };
+  const commitText = (id) => () => {
+    try { syncColor(parseColor($(id).value), false); applyNow("static", currentRGB); }
     catch (e) { setStatus(e.message, "err"); toast(e.message, "err"); }
   };
-  $("hexInput").addEventListener("change", fromText("hexInput"));
-  $("hexInput").addEventListener("keydown", (e) => { if (e.key === "Enter") fromText("hexInput")(); });
-  $("rgbInput").addEventListener("change", fromText("rgbInput"));
-  $("rgbInput").addEventListener("keydown", (e) => { if (e.key === "Enter") fromText("rgbInput")(); });
+  ["hexInput", "rgbInput"].forEach((id) => {
+    $(id).addEventListener("input", liveText(id));
+    $(id).addEventListener("change", commitText(id));
+    $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") commitText(id)(); });
+  });
 
-  $("fxSpectrum").addEventListener("click", () => applyAction("spectrum", null));
-  $("fxBreathing").addEventListener("click", () => applyAction("breathing", currentRGB));
-  $("fxWave").addEventListener("click", () => applyAction("wave", null));
-  $("fxOff").addEventListener("click", () => applyAction("static", [0, 0, 0]));
+  $("fxSpectrum").addEventListener("click", () => applyNow("spectrum", null));
+  $("fxBreathing").addEventListener("click", () => applyNow("breathing", currentRGB));
+  $("fxWave").addEventListener("click", () => applyNow("wave", null));
+  $("fxOff").addEventListener("click", () => applyNow("static", [0, 0, 0]));
 
   navigator.hid.addEventListener("connect", (e) => {
     refresh();
