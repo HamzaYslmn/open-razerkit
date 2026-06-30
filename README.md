@@ -1,4 +1,8 @@
-# open-razer-py
+<p align="center">
+  <img src="docs/logo.png" alt="open-razer-py logo" width="140" />
+</p>
+
+<h1 align="center">open-razer-py</h1>
 
 > Set your Razer mouse's RGB from the terminal — no extra software, no drivers, no background process.
 

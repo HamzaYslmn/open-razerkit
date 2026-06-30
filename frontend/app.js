@@ -263,8 +263,8 @@ function buildSliders() {
 function wireSponsor() {
   const el = $("sponsor");
   if (!el) return;
-  if (store.sponsorDismissed) { el.remove(); return; }   // shown once, then never nags
-  $("sponsorClose").addEventListener("click", () => { el.remove(); store.sponsorDismissed = true; persist(); });
+  // Shows on every load (dismissal is not remembered). Close just hides it for this visit.
+  $("sponsorClose").addEventListener("click", () => el.remove());
 }
 
 // --- init --------------------------------------------------------------------
