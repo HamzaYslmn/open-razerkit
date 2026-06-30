@@ -6,6 +6,7 @@
 ![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)
 ![python](https://img.shields.io/badge/python-3.14%2B-blue)
 [![web app](https://img.shields.io/badge/web%20app-WebHID-10b981)](https://hamzayslmn.github.io/open-razer-py/)
+[![sponsor](https://img.shields.io/badge/sponsor-%E2%9D%A4-ec4899)](https://github.com/sponsors/HamzaYslmn)
 
 I got really tired of the Razer app and other things always running in the background, so I wrote this small Python app. It talks to the device directly over USB-HID, sets the color, and exits.
 
@@ -100,3 +101,7 @@ Tools: `list_devices`, `set_color`, `set_effect`, `get_polling_rate`. For **Clau
 ## 📝 Notes
 
 Verified on the Razer Viper Mini; ~260 other models are included. Some may need a tweak — `--txn` / `--led` are there for tuning. Effects like `wave` need a multi-zone device; single-LED mice (Viper Mini) say so instead of doing nothing.
+
+## ❤️ Sponsor
+
+If this saved you from running Synapse in the background, consider [sponsoring on GitHub](https://github.com/sponsors/HamzaYslmn) — it keeps projects like this maintained.

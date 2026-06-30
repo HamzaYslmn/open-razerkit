@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Razer RGB &mdash; WebHID</title>
+  <title>Razer RGB &mdash; control your lighting from the browser</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = { theme: { extend: {
@@ -18,23 +18,39 @@
       radial-gradient(1200px 600px at 50% -10%, rgba(16,185,129,.12), transparent 60%),
       radial-gradient(800px 500px at 100% 100%, rgba(16,185,129,.06), transparent 55%),
       #0a0a0a; }
-    .swatch { transition: transform .1s ease, box-shadow .1s ease; }
+    .swatch { transition: transform .1s ease; }
     .swatch:hover { transform: translateY(-2px); }
     .swatch:active { transform: translateY(0); }
-    .fx { transition: background .12s, border-color .12s, color .12s; }
-    select, input[type=text] { transition: border-color .12s, box-shadow .12s; }
-    /* native color input -> clean rounded chip */
-    #picker { -webkit-appearance: none; appearance: none; border: none; padding: 0; }
+    .fx { transition: background .12s, border-color .12s, color .12s, transform .1s; }
+    .fx:hover { transform: translateY(-1px); }
+    .fx:disabled { transform: none; }
+    select, input[type=text], input[type=number] { transition: border-color .12s, box-shadow .12s; }
+    #picker { -webkit-appearance: none; appearance: none; border: none; padding: 0; background: transparent; }
     #picker::-webkit-color-swatch-wrapper { padding: 0; }
     #picker::-webkit-color-swatch { border: none; border-radius: 10px; }
-    .pulse-dot { box-shadow: 0 0 0 0 rgba(16,185,129,.6); animation: pulse 2s infinite; }
-    @keyframes pulse { 70% { box-shadow: 0 0 0 8px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
+    input[type=range] { -webkit-appearance: none; appearance: none; height: 8px; border-radius: 9999px; outline: none; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; height: 18px; width: 18px;
+      border-radius: 9999px; background: #fafafa; border: 2px solid #0a0a0a; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+    input[type=range]::-moz-range-thumb { height: 16px; width: 16px; border-radius: 9999px; background: #fafafa;
+      border: 2px solid #0a0a0a; cursor: pointer; }
+    .pulse-dot { animation: pulse 2s infinite; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(16,185,129,.6) } 70% { box-shadow: 0 0 0 7px rgba(16,185,129,0) } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0) } }
+    /* tooltip */
+    .tip { position: relative; }
+    .tip:hover .tip-body { opacity: 1; transform: translateY(0); pointer-events: auto; }
+    .tip-body { position: absolute; bottom: 130%; left: 50%; transform: translate(-50%, 4px); opacity: 0;
+      pointer-events: none; transition: .15s; width: 15rem; z-index: 40;
+      background: #18181b; border: 1px solid rgba(255,255,255,.1); border-radius: .5rem; padding: .55rem .7rem;
+      font-size: 11px; line-height: 1.4; color: #d4d4d8; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
   </style>
 </head>
 <body class="text-neutral-200 min-h-screen flex items-start justify-center p-4 sm:p-10 font-sans antialiased">
+  <!-- Toast notifications -->
+  <div id="toasts" class="pointer-events-none fixed top-4 right-4 z-50 flex w-80 max-w-[90vw] flex-col gap-2"></div>
+
   <main class="w-full max-w-lg">
     <!-- Header -->
-    <header class="mb-7 flex items-center gap-3">
+    <header class="mb-6 flex items-center gap-3">
       <span class="grid h-11 w-11 place-items-center rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/30">
         <svg viewBox="0 0 24 24" class="h-6 w-6 text-emerald-400" fill="currentColor" aria-hidden="true">
           <path d="M3 4c4 5 5 9 5 9l1 4 1-3 1 3 1-4s1-4 5-9c0 0-1 8-4 12l-2 3-1-3-1 3-2-3C4 12 3 4 3 4z"/>
@@ -42,96 +58,178 @@
       </span>
       <div>
         <h1 class="text-2xl font-black tracking-tight bg-gradient-to-r from-emerald-300 to-emerald-500 bg-clip-text text-transparent">RAZER RGB</h1>
-        <p class="text-xs text-neutral-500">Lighting control from Chrome &mdash; WebHID, no install.</p>
+        <p class="text-xs text-neutral-500">Set your Razer device's color &amp; effects right from Chrome. No app, no install, no background process.</p>
       </div>
     </header>
 
-    <!-- WebHID unsupported -->
+    <!-- Getting started -->
+    <ol class="mb-6 grid grid-cols-3 gap-2.5 text-center">
+      <li class="rounded-xl border border-white/5 bg-neutral-900/50 p-3">
+        <div class="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full bg-emerald-500/15 text-xs font-bold text-emerald-400 ring-1 ring-emerald-500/30">1</div>
+        <p class="text-xs font-semibold">Connect</p>
+        <p class="text-[10px] text-neutral-500">Click Connect, pick your device</p>
+      </li>
+      <li class="rounded-xl border border-white/5 bg-neutral-900/50 p-3">
+        <div class="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full bg-emerald-500/15 text-xs font-bold text-emerald-400 ring-1 ring-emerald-500/30">2</div>
+        <p class="text-xs font-semibold">Choose</p>
+        <p class="text-[10px] text-neutral-500">Color, slider, or effect</p>
+      </li>
+      <li class="rounded-xl border border-white/5 bg-neutral-900/50 p-3">
+        <div class="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full bg-emerald-500/15 text-xs font-bold text-emerald-400 ring-1 ring-emerald-500/30">3</div>
+        <p class="text-xs font-semibold">Done</p>
+        <p class="text-[10px] text-neutral-500">Applies to the device instantly</p>
+      </li>
+    </ol>
+
+    <!-- Browser-unsupported notice -->
     <div id="unsupported" class="hidden mb-6 rounded-xl border border-red-800/60 bg-red-950/40 p-4 text-sm text-red-300">
-      WebHID isn't available. Use <b>Chrome</b> or <b>Edge</b>. If you opened this with <code>file://</code> and it
-      still fails, serve it locally: <code class="text-red-200">python -m http.server</code>, then open
+      <b>WebHID isn't available in this browser.</b> Use <b>Chrome</b> or <b>Edge</b> on desktop. If you opened this file
+      with <code>file://</code> and it still fails, serve it locally:
+      <code class="text-red-200">python -m http.server</code>, then open
       <code class="text-red-200">http://localhost:8000/frontend/</code>.
     </div>
 
-    <div class="rounded-2xl border border-white/5 bg-neutral-900/70 backdrop-blur-xl p-5 sm:p-6 shadow-2xl shadow-emerald-950/30 space-y-6">
-      <!-- Device picker -->
-      <div>
-        <label class="block text-[11px] font-semibold uppercase tracking-wider text-neutral-500 mb-1.5">Device</label>
+    <div class="rounded-2xl border border-white/5 bg-neutral-900/70 backdrop-blur-xl p-5 sm:p-6 shadow-2xl shadow-emerald-950/30 space-y-7">
+
+      <!-- 1. Device -->
+      <section>
+        <div class="mb-1.5 flex items-center gap-2">
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Step 1 · Device</span>
+          <span class="tip"><svg class="h-3.5 w-3.5 text-neutral-600" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zm.9 12H9.1v-1.8h1.8V14zm0-3H9.1V6h1.8v5z"/></svg>
+            <span class="tip-body">Chrome only lets a website touch a USB device after <b>you</b> pick it. Click <b>Connect</b>, choose your Razer device in the popup, and it stays remembered for next time.</span></span>
+        </div>
         <div class="flex items-center gap-2.5">
           <div class="relative flex-1">
-            <select id="deviceSelect" class="w-full appearance-none rounded-lg bg-neutral-800/80 border border-neutral-700 pl-9 pr-8 py-2.5 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none">
-              <option>No devices &mdash; click Connect</option>
+            <select id="deviceSelect" title="Connected Razer devices" class="w-full appearance-none rounded-lg bg-neutral-800/80 border border-neutral-700 pl-9 pr-8 py-2.5 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none">
+              <option>No devices &mdash; click Connect &rarr;</option>
             </select>
-            <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-emerald-400 pulse-dot"></span>
+            <span id="statusDot" title="Connection status" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-neutral-600"></span>
             <svg class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" viewBox="0 0 20 20" fill="currentColor"><path d="M5.5 7.5 10 12l4.5-4.5"/></svg>
           </div>
           <button id="connectBtn" class="rounded-lg bg-emerald-500 hover:bg-emerald-400 hover:shadow-glow px-4 py-2.5 text-sm font-bold text-black transition">Connect</button>
         </div>
         <p id="deviceMeta" class="mt-2 text-[11px] font-mono text-neutral-500"></p>
-      </div>
-
-      <!-- Colors -->
-      <div>
-        <div class="flex items-center justify-between mb-2.5">
-          <span class="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Colors</span>
-          <label class="flex items-center gap-2 text-xs text-neutral-400 cursor-pointer select-none">
-            <input id="saveToggle" type="checkbox" checked class="h-3.5 w-3.5 accent-emerald-500" />
-            save to device
-          </label>
-        </div>
-        <div id="colorGrid" class="grid grid-cols-4 gap-2.5"></div>
-      </div>
-
-      <!-- Custom color -->
-      <div class="flex items-center gap-2.5">
-        <input id="picker" type="color" value="#00ff88" class="h-11 w-14 shrink-0 cursor-pointer rounded-[10px] ring-1 ring-white/10" />
-        <input id="colorText" type="text" placeholder="ff1e00 · 255,0,255 · purple" class="flex-1 rounded-lg bg-neutral-800/80 border border-neutral-700 px-3 py-2.5 text-sm font-mono focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none" />
-        <button id="applyColorBtn" class="rounded-lg bg-neutral-700 hover:bg-neutral-600 px-4 py-2.5 text-sm font-semibold transition">Apply</button>
-      </div>
+      </section>
 
       <div class="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
 
-      <!-- Effects -->
-      <div>
-        <span class="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Effects</span>
-        <div class="mt-2.5 grid grid-cols-4 gap-2.5">
-          <button id="fxSpectrum" class="fx group rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
-            <span class="block text-base">🌈</span>Spectrum</button>
-          <button id="fxBreathing" class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
-            <span class="block text-base">🫧</span>Breathing</button>
-          <button id="fxWave" class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
-            <span class="block text-base">🌊</span>Wave</button>
-          <button id="fxOff" class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-red-500/40 px-2 py-3 text-xs font-semibold">
-            <span class="block text-base">⏻</span>Off</button>
+      <!-- 2. Color -->
+      <section>
+        <div class="mb-2.5 flex items-center justify-between">
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Step 2 · Color</span>
+          <label class="tip flex items-center gap-2 text-xs text-neutral-400 cursor-pointer select-none">
+            <input id="saveToggle" type="checkbox" checked class="h-3.5 w-3.5 accent-emerald-500" />
+            save to device
+            <span class="tip-body text-left">
+              <b>On</b> (recommended): the color is stored in the device's onboard memory, so it survives unplugging
+              &amp; reboots with nothing running. <b>Off</b>: temporary &mdash; lasts until power-off.
+            </span>
+          </label>
         </div>
-        <p class="mt-2 text-[11px] text-neutral-600">Breathing uses the picker color (black = random). Wave needs a multi-zone device.</p>
-      </div>
+        <p class="mb-3 text-[11px] text-neutral-500">Pick a color any way you like &mdash; the swatch, the wheel, sliders, or by typing a value. They all stay in sync and apply instantly.</p>
+
+        <!-- preview + native wheel -->
+        <div class="flex gap-3">
+          <input id="picker" type="color" value="#00ff88" title="Color wheel" class="h-20 w-16 shrink-0 cursor-pointer rounded-xl ring-1 ring-white/10" />
+          <div id="preview" class="relative flex-1 rounded-xl ring-1 ring-white/10 grid place-items-center" style="background:#00ff88">
+            <span id="previewHex" class="rounded-md bg-black/40 px-2 py-1 text-xs font-mono font-semibold text-white backdrop-blur">#00FF88</span>
+          </div>
+        </div>
+
+        <!-- type a value -->
+        <div class="mt-3 grid grid-cols-2 gap-3">
+          <label class="text-[11px] text-neutral-500">Hex code
+            <div class="mt-1 flex items-center rounded-lg bg-neutral-800/80 border border-neutral-700 focus-within:border-emerald-500">
+              <span class="pl-2.5 text-neutral-500 font-mono text-sm">#</span>
+              <input id="hexInput" type="text" maxlength="6" value="00ff88" placeholder="00ff88" title="6-digit hex, e.g. ff1e00" class="w-full bg-transparent px-1.5 py-2 text-sm font-mono focus:outline-none" />
+            </div>
+          </label>
+          <label class="text-[11px] text-neutral-500">R, G, B values
+            <input id="rgbInput" type="text" value="0, 255, 136" placeholder="0, 255, 136" title="Three numbers 0–255" class="mt-1 w-full rounded-lg bg-neutral-800/80 border border-neutral-700 px-3 py-2 text-sm font-mono focus:border-emerald-500 focus:outline-none" />
+          </label>
+        </div>
+
+        <!-- sliders -->
+        <div id="sliders" class="mt-4 space-y-2.5"></div>
+
+        <!-- presets -->
+        <p class="mt-4 mb-2 text-[11px] text-neutral-500">Quick presets</p>
+        <div id="colorGrid" class="grid grid-cols-4 gap-2.5"></div>
+      </section>
+
+      <div class="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
+
+      <!-- 3. Effects -->
+      <section>
+        <span class="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Step 3 · Effects (optional)</span>
+        <p class="mt-1 mb-2.5 text-[11px] text-neutral-500">These run on the device itself &mdash; no software needed to keep them going.</p>
+        <div class="grid grid-cols-4 gap-2.5">
+          <button id="fxSpectrum" title="Smoothly cycles through the whole rainbow, forever." class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
+            <span class="block text-base leading-none mb-1">🌈</span>Spectrum<span class="block text-[9px] font-normal text-neutral-500">rainbow cycle</span></button>
+          <button id="fxBreathing" title="Fades the current color in and out. Black = random colors." class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
+            <span class="block text-base leading-none mb-1">🫧</span>Breathing<span class="block text-[9px] font-normal text-neutral-500">fade in/out</span></button>
+          <button id="fxWave" title="A color wave that flows across the zones. Needs a multi-zone device." class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
+            <span class="block text-base leading-none mb-1">🌊</span>Wave<span class="block text-[9px] font-normal text-neutral-500">multi-zone</span></button>
+          <button id="fxOff" title="Turns the lighting off (sets it to solid black)." class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-red-500/40 px-2 py-3 text-xs font-semibold">
+            <span class="block text-base leading-none mb-1">⏻</span>Off<span class="block text-[9px] font-normal text-neutral-500">lights out</span></button>
+        </div>
+      </section>
+
+      <!-- last action -->
+      <div id="status" class="text-sm min-h-[1.25rem] font-mono text-neutral-400"></div>
 
       <!-- Advanced -->
-      <details class="group text-sm">
+      <details class="group text-sm border-t border-white/5 pt-4">
         <summary class="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-300 select-none">
           <svg class="h-3.5 w-3.5 transition group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7.5 5.5 12 10l-4.5 4.5"/></svg>
-          Advanced &mdash; per-call tuning
+          Advanced &mdash; manual tuning (most people never need this)
         </summary>
+        <p class="mt-2.5 text-[11px] leading-relaxed text-neutral-500">
+          Each model speaks the protocol with a specific <b>transaction id</b> and <b>LED id</b> &mdash; the app fills
+          these in automatically from its table. Only override them if your device is unknown or a color doesn't take.
+        </p>
         <div class="mt-3 flex gap-3">
-          <label class="flex-1 text-[11px] text-neutral-500">txn (hex, blank = table)
+          <label class="flex-1 text-[11px] text-neutral-500">txn (hex, blank = auto)
             <input id="txnInput" type="text" placeholder="3f" class="mt-1 w-full rounded-md bg-neutral-800/80 border border-neutral-700 px-2.5 py-1.5 text-sm font-mono focus:border-emerald-500 focus:outline-none" />
           </label>
-          <label class="flex-1 text-[11px] text-neutral-500">led (hex, blank = table)
+          <label class="flex-1 text-[11px] text-neutral-500">led (hex, blank = auto)
             <input id="ledInput" type="text" placeholder="04" class="mt-1 w-full rounded-md bg-neutral-800/80 border border-neutral-700 px-2.5 py-1.5 text-sm font-mono focus:border-emerald-500 focus:outline-none" />
           </label>
         </div>
       </details>
-
-      <!-- Status -->
-      <div id="status" class="text-sm min-h-[1.25rem] font-mono text-neutral-400"></div>
     </div>
 
-    <p class="mt-5 text-[11px] leading-relaxed text-neutral-600">
-      267 known models. Unknown devices fall back to <code>custom / txn 3f</code>. Close Synapse / other RGB apps so
-      changes stick. Writes to onboard memory when &ldquo;save&rdquo; is on.
-    </p>
-    <p class="mt-3 flex gap-4 text-xs">
+    <!-- How it works / FAQ -->
+    <details class="mt-5 rounded-2xl border border-white/5 bg-neutral-900/50 p-5 text-sm group">
+      <summary class="flex cursor-pointer items-center gap-2 font-semibold text-neutral-300 select-none">
+        <svg class="h-4 w-4 text-emerald-400 transition group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7.5 5.5 12 10l-4.5 4.5"/></svg>
+        How this works &amp; FAQ
+      </summary>
+      <div class="mt-4 space-y-4 text-[13px] leading-relaxed text-neutral-400">
+        <div>
+          <p class="font-semibold text-neutral-200">What is this?</p>
+          <p>A web version of <a href="https://github.com/HamzaYslmn/open-razer-py" class="text-emerald-400 hover:underline">open-razer-py</a>. It talks to your Razer device directly over USB using the browser's <b>WebHID</b> API and speaks Razer's own lighting protocol &mdash; the same bytes the desktop tool sends. No Synapse, no drivers, no account.</p>
+        </div>
+        <div>
+          <p class="font-semibold text-neutral-200">Is it safe / private?</p>
+          <p>Yes. Everything runs <b>in your browser on your machine</b>. Nothing is uploaded; there's no server. The page can only reach the one device you explicitly pick, and only while the tab is open.</p>
+        </div>
+        <div>
+          <p class="font-semibold text-neutral-200">What does &ldquo;save to device&rdquo; do?</p>
+          <p>Razer devices have a little <b>onboard memory</b>. With save on, your color is written there, so it sticks after you unplug or reboot &mdash; with nothing running in the background. Turn it off to set a color just for now.</p>
+        </div>
+        <div>
+          <p class="font-semibold text-neutral-200">My color didn't change / I get an error</p>
+          <p>Two common causes: (1) <b>Synapse or another RGB app is open</b> &mdash; close it, it keeps re-applying its own profile. (2) Chrome blocks WebHID on some devices whose control lives on a &ldquo;protected&rdquo; mouse/keyboard interface; if you see that toast, this device can only be driven by the <a href="https://github.com/HamzaYslmn/open-razer-py" class="text-emerald-400 hover:underline">command-line tool</a>.</p>
+        </div>
+        <div>
+          <p class="font-semibold text-neutral-200">Which devices work?</p>
+          <p>267 Razer models are in the table (mice, keyboards, headsets, mousepads, laptops). Unknown ones still get a sensible default. Effects like <b>Wave</b> need more than one lighting zone, so single-LED mice show it greyed out.</p>
+        </div>
+      </div>
+    </details>
+
+    <p class="mt-4 flex gap-4 text-xs">
       <a href="https://github.com/HamzaYslmn/open-razer-py" class="text-neutral-500 hover:text-emerald-400 transition underline-offset-2 hover:underline">GitHub repo &rarr;</a>
       <a href="https://hamzayslmn.github.io/open-razer-py/" class="text-neutral-500 hover:text-emerald-400 transition underline-offset-2 hover:underline">Live app &rarr;</a>
     </p>
