@@ -28,6 +28,25 @@ const store = (() => { try { return JSON.parse(localStorage.getItem(STORE_KEY)) 
 store.perDevice = store.perDevice || {};   // hex pid -> { rgb, action }
 function persist() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch { /* private mode / full */ } }
 
+// --- i18n (en / tr; dictionaries in i18n/*.js) -------------------------------
+let currentLang = "en";
+function t(key, vars) {
+  const en = window.I18N.en, d = window.I18N[currentLang] || en;
+  let s = d[key] != null ? d[key] : (en[key] != null ? en[key] : key);
+  if (vars) for (const k in vars) s = s.split(`{${k}}`).join(vars[k]);
+  return s;
+}
+function applyI18n(lang) {
+  currentLang = (window.I18N && window.I18N[lang]) ? lang : "en";
+  const dict = window.I18N[currentLang];
+  document.documentElement.lang = currentLang;
+  document.querySelectorAll("[data-i18n]").forEach((el) => { const v = dict[el.dataset.i18n]; if (v != null) el.textContent = v; });
+  document.querySelectorAll("[data-i18n-html]").forEach((el) => { const v = dict[el.dataset.i18nHtml]; if (v != null) el.innerHTML = v; });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => { const v = dict[el.dataset.i18nTitle]; if (v != null) el.title = v; });
+  buildColorGrid();                                          // preset labels are language-dependent
+  if (!devicesByPid.size) $("deviceSelect").innerHTML = `<option>${t("noDevices")}</option>`;
+}
+
 // --- color parsing (port of core.parse_color) --------------------------------
 function parseColor(s) {
   const t = String(s).trim().replace(/^#/, "").toLowerCase();
@@ -87,7 +106,7 @@ async function requestDevices() {
   let granted;
   try { granted = await navigator.hid.requestDevice({ filters: [{ vendorId: VID }] }); }
   catch (e) { toast(e.message, "err"); return; }
-  if (!granted.length) { toast("No device selected.", "warn"); return; }
+  if (!granted.length) { toast(t("noDeviceSelected"), "warn"); return; }
 
   // Merge granted devices with already-permitted ones so a just-granted device
   // is NEVER lost to a getDevices() timing/return quirk (the old connect bug).
@@ -99,12 +118,10 @@ async function requestDevices() {
   renderDevices();
 
   if (currentPid == null) {
-    const nm = granted[0].productName || `1532:${hex4(pid)}`;
-    toast(`Granted ${nm}, but Chrome exposes no usable HID collection for it ` +
-          `(its control interface is a protected mouse/keyboard collection). Use the CLI for this one.`, "err");
+    toast(t("noUsable", { name: granted[0].productName || `1532:${hex4(pid)}` }), "err");
   } else {
     reflectDeviceColor(currentPid);   // show this device's last-known color
-    toast(`Connected: ${getDevice(currentPid)?.name || granted[0].productName || hex4(pid)}`, "ok");
+    toast(t("connected", { name: getDevice(currentPid)?.name || granted[0].productName || hex4(pid) }), "ok");
   }
 }
 async function sendReports(pid, reports) {
@@ -175,7 +192,7 @@ const txnCandidates = () => {
 };
 
 async function applyAction(action, rgb) {
-  if (currentPid == null) { toast("Connect a device first.", "warn"); return; }
+  if (currentPid == null) { toast(t("connectFirst"), "warn"); return; }
   const dev = getDevice(currentPid);
   const oTxn = ovTxn(), oLed = ovLed();
   let method, txn, led, label;
@@ -187,7 +204,7 @@ async function applyAction(action, rgb) {
   catch (e) { setStatus(`${label}: ${e.message}`, "err"); toast(e.message, "err"); return; }
   try {
     await sendReports(currentPid, reports);
-    setStatus(`OK  ${label} -> ${describe(action, rgb)}`, "ok");
+    setStatus(t("okApply", { label, desc: describe(action, rgb) }), "ok");
     const key = hex4(currentPid);                       // remember this device's state
     store.perDevice[key] = { rgb: rgb ? rgb.map(clamp) : store.perDevice[key]?.rgb, action };
     if (rgb) store.lastRGB = rgb.map(clamp);
@@ -197,33 +214,33 @@ async function applyAction(action, rgb) {
 }
 
 async function setBrightness(pct) {
-  if (currentPid == null) { toast("Connect a device first.", "warn"); return; }
+  if (currentPid == null) { toast(t("connectFirst"), "warn"); return; }
   const dev = getDevice(currentPid);
   const method = dev ? dev.method : "custom";
   const txn = ovTxn() ?? (dev ? dev.txn : 0x3f), led = ovLed() ?? (dev ? dev.led : 0x00);
   const level = Math.round(Math.max(0, Math.min(100, pct)) * 255 / 100);
   try {
     await sendReports(currentPid, brightnessReport(method, level, txn, led, save));
-    setStatus(`OK  brightness -> ${pct}%`, "ok");
+    setStatus(t("okBrightness", { pct }), "ok");
     store.lastBrightness = pct; persist();
   } catch (e) { setStatus(e.message, "err"); toast(e.message, "err"); }
 }
 
 async function setDpiWeb(x) {
-  if (currentPid == null) { toast("Connect a device first.", "warn"); return; }
-  if (!(x >= 100 && x <= 30000)) { toast("DPI must be 100–30000.", "err"); return; }
+  if (currentPid == null) { toast(t("connectFirst"), "warn"); return; }
+  if (!(x >= 100 && x <= 30000)) { toast(t("dpiRange"), "err"); return; }
   const reports = [];                       // writes aren't confirmable -> send under each likely txn
-  for (const t of txnCandidates()) reports.push(...setDpiReport(x, x, t));
-  try { await sendReports(currentPid, reports); setStatus(`OK  dpi -> ${x}`, "ok"); }
+  for (const tx of txnCandidates()) reports.push(...setDpiReport(x, x, tx));
+  try { await sendReports(currentPid, reports); setStatus(t("okDpi", { x }), "ok"); }
   catch (e) { setStatus(e.message, "err"); toast(e.message, "err"); }
 }
 
 async function setPollWeb(hz) {
-  if (currentPid == null) { toast("Connect a device first.", "warn"); return; }
+  if (currentPid == null) { toast(t("connectFirst"), "warn"); return; }
   let reports = [];
-  try { for (const t of txnCandidates()) reports.push(...setPollReport(hz, t)); }
+  try { for (const tx of txnCandidates()) reports.push(...setPollReport(hz, tx)); }
   catch (e) { toast(e.message, "err"); return; }
-  try { await sendReports(currentPid, reports); setStatus(`OK  polling -> ${hz} Hz`, "ok"); }
+  try { await sendReports(currentPid, reports); setStatus(t("okPoll", { hz }), "ok"); }
   catch (e) { setStatus(e.message, "err"); toast(e.message, "err"); }
 }
 
@@ -258,7 +275,7 @@ function renderDevices() {
   const sel = $("deviceSelect"), dot = $("statusDot");
   const pids = [...devicesByPid.keys()].sort((a, b) => a - b);
   if (!pids.length) {
-    sel.innerHTML = "<option>No devices -- click Connect</option>";
+    sel.innerHTML = `<option>${t("noDevices")}</option>`;
     currentPid = null; $("deviceMeta").textContent = "";
     dot.className = "pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-neutral-600";
     toggleEffects();
@@ -288,7 +305,7 @@ async function renderMeta() {
 
 async function renderInfo(pid) {
   const el = $("deviceInfo");
-  el.textContent = "reading device…";
+  el.textContent = t("reading");
   const info = await readInfo(pid);
   if (currentPid !== pid) return;
   const bits = [];
@@ -319,7 +336,7 @@ function buildColorGrid() {
   $("colorGrid").innerHTML = QUICK.map(([name, rgb]) => {
     const dark = name === "white" || name === "yellow";
     return `<button class="swatch rounded-xl px-2 py-3.5 text-xs font-bold capitalize ring-1 ring-inset ring-black/20 shadow-lg shadow-black/40 hover:ring-2 hover:ring-white/60 ${dark ? "text-black/80" : "text-white drop-shadow"}"
-            style="background:rgb(${rgb.join(",")})" data-rgb="${rgb.join(",")}">${name}</button>`;
+            style="background:rgb(${rgb.join(",")})" data-rgb="${rgb.join(",")}">${t("preset_" + name)}</button>`;
   }).join("");
   $("colorGrid").querySelectorAll("button").forEach((b) =>
     b.addEventListener("click", () => { syncColor(b.dataset.rgb.split(",").map(Number), false); applyNow("static", currentRGB); }));
@@ -355,9 +372,17 @@ function wireSponsor() {
 // --- init --------------------------------------------------------------------
 function init() {
   wireSponsor();    // independent of WebHID support
+
+  // language (en/tr): stored choice, else browser default
+  const lang = store.lang || (navigator.language && navigator.language.toLowerCase().startsWith("tr") ? "tr" : "en");
+  $("langSelect").value = lang;
+  $("langSelect").addEventListener("change", (e) => { store.lang = e.target.value; persist(); applyI18n(e.target.value); });
+  applyI18n(lang);
+
   if (!navigator.hid) {
     $("unsupported").classList.remove("hidden");
     document.querySelectorAll("main button, main select, main input").forEach((e) => (e.disabled = true));
+    $("langSelect").disabled = false;     // keep the language switch usable
     return;
   }
   // restore last session from localStorage
@@ -418,12 +443,12 @@ function init() {
   navigator.hid.addEventListener("connect", (e) => {
     refresh();
     if (e.device?.vendorId === VID)
-      toast(`Connected: ${getDevice(e.device.productId)?.name || e.device.productName || "Razer device"}`, "ok");
+      toast(t("connected", { name: getDevice(e.device.productId)?.name || e.device.productName || "Razer" }), "ok");
   });
   navigator.hid.addEventListener("disconnect", (e) => {
     refresh();
     if (e.device?.vendorId === VID)
-      toast(`Disconnected: ${getDevice(e.device.productId)?.name || e.device.productName || "Razer device"}`, "warn");
+      toast(t("disconnected", { name: getDevice(e.device.productId)?.name || e.device.productName || "Razer" }), "warn");
   });
   refresh();
 }
