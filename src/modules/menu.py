@@ -6,7 +6,25 @@ import sys
 import drivers
 import transport
 from modules import settings
-from modules.core import apply, connected_list, describe, parse_color, read_hz
+from modules.core import (apply, connected_list, describe, parse_color, read_hz,
+                          read_status, set_brightness)
+
+
+def _info_line(pid):
+    """One-line battery/DPI/firmware/serial summary read from the device."""
+    st = read_status(pid)
+    bits = []
+    if st['hz']:
+        bits.append(f"{st['hz']} Hz")
+    if st['dpi']:
+        bits.append(f"{st['dpi'][0]}x{st['dpi'][1]} dpi")
+    if st['battery'] is not None:
+        bits.append(f"batt {st['battery']}%" + ("+" if st['charging'] else ""))
+    if st['firmware']:
+        bits.append(f"fw {st['firmware']}")
+    if st['serial']:
+        bits.append(st['serial'])
+    return "  ".join(bits) if bits else "no readable info"
 
 _QUICK = [('1', 'red'), ('2', 'green'), ('3', 'blue'), ('4', 'white'),
           ('5', 'yellow'), ('6', 'cyan'), ('7', 'magenta'), ('8', 'orange')]
@@ -98,12 +116,13 @@ def _render(name, save, status, can_wave, hz):
     for i in range(0, len(cells), 4):
         print("    " + " ".join(cells[i:i + 4]))
     print(f"    [{_wrap('c', '36')}]{_swatch((136, 136, 136))} custom...")
-    wave = f"[{_wrap('w', '36')}] wave   " if can_wave else ""    # hidden on single-LED devices
+    multi = f"[{_wrap('w', '36')}] wave   [{_wrap('r', '36')}] reactive   " if can_wave else ""  # multi-zone only
     print("  " + _wrap("effects", "1") +
           f"   [{_wrap('p', '36')}] spectrum   [{_wrap('b', '36')}] breathing   "
-          f"{wave}[{_wrap('o', '36')}] off")
+          f"{multi}[{_wrap('o', '36')}] off")
     print("  " + _wrap("manage", "1") +
-          f"    [{_wrap('d', '36')}] device   [{_wrap('s', '36')}] save   [{_wrap('q', '36')}] quit")
+          f"    [{_wrap('d', '36')}] device   [{_wrap('s', '36')}] save   "
+          f"[{_wrap('L', '36')}] bright   [{_wrap('i', '36')}] info   [{_wrap('q', '36')}] quit")
     print("  " + rule)
 
 
@@ -139,6 +158,15 @@ def menu():
                 save = not save
                 status = _wrap(f"save {'on' if save else 'off'}", "2")
                 continue
+            if c == 'l':
+                val = input("  brightness 0-100: ").strip()
+                if val.isdigit():
+                    set_brightness(pid, int(val), save=save)
+                    status = _wrap(f"OK  brightness {val}%", "32")
+                continue
+            if c == 'i':
+                status = _wrap(_info_line(pid), "2")
+                continue
             if c in colors:
                 action, rgb = 'static', parse_color(colors[c])
             elif c == 'c':
@@ -146,6 +174,9 @@ def menu():
             elif c == 'b':
                 col = input("  breathe color (blank = random): ").strip()
                 action, rgb = 'breathing', (parse_color(col) if col else None)
+            elif c == 'r':
+                col = input("  reactive color: ").strip()
+                action, rgb = 'reactive', (parse_color(col) if col else None)
             elif c == 'o':
                 action, rgb = 'static', (0, 0, 0)            # off == solid black
             elif c in ('p', 'w'):

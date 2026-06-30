@@ -48,12 +48,22 @@ uv run python src/main.py                 # list devices, or open the menu in a 
 uv run python src/main.py red             # solid color (name, ff0000, or '255,0,0')
 uv run python src/main.py spectrum        # on-device effect
 uv run python src/main.py breathing 00ff88
+uv run python src/main.py reactive ff0000 # light up on keypress/click (multi-zone)
 uv run python src/main.py off             # solid black
 uv run python src/main.py red -d all      # every connected Razer device
 uv run python src/main.py -m              # interactive menu
 ```
 
 `-d` picks a device by list number (`-d 2`), product id (`-d 008a`), or `all`. The color saves to onboard memory by default; add `--temp` to apply it just once.
+
+Other device-internal settings (stored on the device, no software needed afterward):
+
+```bash
+uv run python src/main.py --brightness 60     # brightness 0-100
+uv run python src/main.py --dpi 1600          # mouse DPI (or --dpi 1600,800 for x,y)
+uv run python src/main.py --poll 500          # polling rate: 1000, 500, or 125 Hz
+uv run python src/main.py --info              # read battery, firmware, serial, DPI, Hz
+```
 
 ## 🌐 Browser app (no install)
 

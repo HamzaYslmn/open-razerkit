@@ -121,31 +121,66 @@ async function sendReports(pid, reports) {
   throw new Error(`every granted collection rejected the report (last: ${last && last.message}). ` +
     `Chrome may be blocking this device's mouse collection (WebHID protected usage).`);
 }
-async function readHz(pid) {
-  const req = razerReport(0x00, 0x85, 0x01, [], 0xFF);   // get polling rate
-  for (const dev of devicesByPid.get(pid) || []) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const READ_TXNS = [0xFF, 0x1F, 0x3F];
+const workingTxn = new Map();   // pid -> the txn that answered, so later reads skip the dance
+
+async function queryDevice(pid, makeReport) {
+  // Send a GET request, read the 90-byte reply; try the device txn + fallbacks,
+  // accept the first reply with success status (byte 0 == 0x02).
+  const dev = getDevice(pid);
+  const txns = [...new Set([workingTxn.get(pid), ...(dev ? [dev.txn] : []), ...READ_TXNS].filter((t) => t != null))];
+  for (const d of devicesByPid.get(pid) || []) {
     try {
-      if (!dev.opened) await dev.open();
-      await dev.sendFeatureReport(0, req);
-      const dv = await dev.receiveFeatureReport(0);
-      if (dv.getUint8(0) === 0x02 && dv.getUint8(8)) {
-        const code = dv.getUint8(8);
-        return HZ[code] || (code >= 1 && code <= 8 ? Math.floor(1000 / code) : null);
+      if (!d.opened) await d.open();
+      for (const txn of txns) {
+        await d.sendFeatureReport(0, makeReport(txn));
+        await sleep(20);                     // let the device fill the response
+        const dv = await d.receiveFeatureReport(0);
+        if (dv.getUint8(0) === 0x02) { workingTxn.set(pid, txn); return dv; }
       }
     } catch (e) { /* collection can't be read -- try next */ }
   }
   return null;
 }
 
+async function readHz(pid) {
+  const dv = await queryDevice(pid, qPoll);
+  if (!dv || !dv.getUint8(8)) return null;
+  const code = dv.getUint8(8);
+  return HZ[code] || (code >= 1 && code <= 8 ? Math.floor(1000 / code) : null);
+}
+
+async function readInfo(pid) {
+  // Battery / charging / firmware / DPI / serial -- each null if unavailable.
+  const out = { battery: null, charging: null, fw: null, serial: null, dpi: null };
+  const batt = await queryDevice(pid, qBattery);
+  if (batt) out.battery = Math.round(batt.getUint8(9) * 100 / 255);
+  if (out.battery != null) { const c = await queryDevice(pid, qCharging); if (c) out.charging = !!c.getUint8(9); }
+  const fw = await queryDevice(pid, qFirmware);
+  if (fw) out.fw = `${fw.getUint8(8)}.${fw.getUint8(9)}`;
+  const dpi = await queryDevice(pid, qDpi);
+  if (dpi) out.dpi = [(dpi.getUint8(9) << 8) | dpi.getUint8(10), (dpi.getUint8(11) << 8) | dpi.getUint8(12)];
+  const ser = await queryDevice(pid, qSerial);
+  if (ser) { let s = ""; for (let i = 8; i < 30; i++) { const ch = ser.getUint8(i); if (!ch) break; s += String.fromCharCode(ch); } out.serial = s.trim() || null; }
+  return out;
+}
+
 // --- apply (port of core.apply) ----------------------------------------------
+const ovTxn = () => { const v = $("txnInput").value.trim(); return v ? parseInt(v, 16) : null; };
+const ovLed = () => { const v = $("ledInput").value.trim(); return v ? parseInt(v, 16) : null; };
+const txnCandidates = () => {
+  const dev = getDevice(currentPid);
+  return [...new Set([...(dev ? [dev.txn] : [0x3f]), 0xFF, 0x1F, 0x3F])];
+};
+
 async function applyAction(action, rgb) {
   if (currentPid == null) { toast("Connect a device first.", "warn"); return; }
   const dev = getDevice(currentPid);
-  const ovTxn = (() => { const v = $("txnInput").value.trim(); return v ? parseInt(v, 16) : null; })();
-  const ovLed = (() => { const v = $("ledInput").value.trim(); return v ? parseInt(v, 16) : null; })();
+  const oTxn = ovTxn(), oLed = ovLed();
   let method, txn, led, label;
-  if (dev) { method = dev.method; txn = ovTxn ?? dev.txn; led = ovLed ?? dev.led; label = dev.name; }
-  else { method = "custom"; txn = ovTxn ?? 0x3f; led = ovLed ?? 0x00; label = `unknown 1532:${hex4(currentPid)}`; }
+  if (dev) { method = dev.method; txn = oTxn ?? dev.txn; led = oLed ?? dev.led; label = dev.name; }
+  else { method = "custom"; txn = oTxn ?? 0x3f; led = oLed ?? 0x00; label = `unknown 1532:${hex4(currentPid)}`; }
 
   let reports;
   try { reports = buildReports(method, action, rgb, txn, led, save); }
@@ -159,6 +194,37 @@ async function applyAction(action, rgb) {
     store.lastPid = currentPid;
     persist();
   } catch (e) { setStatus(`${label}: ${e.message}`, "err"); toast(e.message, "err"); }
+}
+
+async function setBrightness(pct) {
+  if (currentPid == null) { toast("Connect a device first.", "warn"); return; }
+  const dev = getDevice(currentPid);
+  const method = dev ? dev.method : "custom";
+  const txn = ovTxn() ?? (dev ? dev.txn : 0x3f), led = ovLed() ?? (dev ? dev.led : 0x00);
+  const level = Math.round(Math.max(0, Math.min(100, pct)) * 255 / 100);
+  try {
+    await sendReports(currentPid, brightnessReport(method, level, txn, led, save));
+    setStatus(`OK  brightness -> ${pct}%`, "ok");
+    store.lastBrightness = pct; persist();
+  } catch (e) { setStatus(e.message, "err"); toast(e.message, "err"); }
+}
+
+async function setDpiWeb(x) {
+  if (currentPid == null) { toast("Connect a device first.", "warn"); return; }
+  if (!(x >= 100 && x <= 30000)) { toast("DPI must be 100–30000.", "err"); return; }
+  const reports = [];                       // writes aren't confirmable -> send under each likely txn
+  for (const t of txnCandidates()) reports.push(...setDpiReport(x, x, t));
+  try { await sendReports(currentPid, reports); setStatus(`OK  dpi -> ${x}`, "ok"); }
+  catch (e) { setStatus(e.message, "err"); toast(e.message, "err"); }
+}
+
+async function setPollWeb(hz) {
+  if (currentPid == null) { toast("Connect a device first.", "warn"); return; }
+  let reports = [];
+  try { for (const t of txnCandidates()) reports.push(...setPollReport(hz, t)); }
+  catch (e) { toast(e.message, "err"); return; }
+  try { await sendReports(currentPid, reports); setStatus(`OK  polling -> ${hz} Hz`, "ok"); }
+  catch (e) { setStatus(e.message, "err"); toast(e.message, "err"); }
 }
 
 // --- debounced apply ---------------------------------------------------------
@@ -209,13 +275,29 @@ function renderDevices() {
   renderMeta();
 }
 async function renderMeta() {
-  const d = getDevice(currentPid), m = $("deviceMeta");
+  const pid = currentPid;                    // capture: guard against the device changing mid-read
+  const d = getDevice(pid), m = $("deviceMeta");
   const base = d ? `method ${d.method} · txn 0x${d.txn.toString(16)} · led 0x${d.led.toString(16)}`
                  : "unknown model · falls back to custom / txn 3f";
   m.textContent = base;
   toggleEffects();
-  const hz = await readHz(currentPid);
-  if (hz && getDevice(currentPid) === d) m.textContent = base + `  ·  ${hz} Hz`;
+  renderInfo(pid);
+  const hz = await readHz(pid);
+  if (hz && currentPid === pid) m.textContent = base + `  ·  ${hz} Hz`;
+}
+
+async function renderInfo(pid) {
+  const el = $("deviceInfo");
+  el.textContent = "reading device…";
+  const info = await readInfo(pid);
+  if (currentPid !== pid) return;
+  const bits = [];
+  if (info.battery != null) bits.push(`🔋 ${info.battery}%${info.charging ? " ⚡" : ""}`);
+  if (info.dpi) bits.push(`${info.dpi[0]}×${info.dpi[1]} dpi`);
+  if (info.fw) bits.push(`fw ${info.fw}`);
+  if (info.serial) bits.push(info.serial);
+  el.textContent = bits.join("  ·  ");
+  if (info.dpi && !$("dpiInput").value) $("dpiInput").value = info.dpi[0];
 }
 function reflectDeviceColor(pid) {
   // Show this device's last-known color (from localStorage) -- preview only, no apply.
@@ -224,11 +306,14 @@ function reflectDeviceColor(pid) {
 }
 function toggleEffects() {
   const d = getDevice(currentPid);
-  const canWave = d && d.method !== "custom" && d.method !== "logo";   // single-LED can't wave
-  const w = $("fxWave");
-  w.disabled = !canWave;
-  w.classList.toggle("opacity-30", !canWave);
-  w.classList.toggle("cursor-not-allowed", !canWave);
+  const multi = d && d.method !== "custom" && d.method !== "logo";   // single-LED can't wave/react
+  for (const id of ["fxWave", "fxReactive"]) {
+    const w = $(id);
+    if (!w) continue;
+    w.disabled = !multi;
+    w.classList.toggle("opacity-30", !multi);
+    w.classList.toggle("cursor-not-allowed", !multi);
+  }
 }
 function buildColorGrid() {
   $("colorGrid").innerHTML = QUICK.map(([name, rgb]) => {
@@ -309,8 +394,26 @@ function init() {
 
   $("fxSpectrum").addEventListener("click", () => applyNow("spectrum", null));
   $("fxBreathing").addEventListener("click", () => applyNow("breathing", currentRGB));
+  $("fxReactive").addEventListener("click", () => applyNow("reactive", currentRGB));
   $("fxWave").addEventListener("click", () => applyNow("wave", null));
   $("fxOff").addEventListener("click", () => applyNow("static", [0, 0, 0]));
+
+  // brightness: live % label, apply 500ms after you stop dragging
+  if (typeof store.lastBrightness === "number") {
+    $("brightness").value = store.lastBrightness;
+    $("brightnessVal").textContent = store.lastBrightness + "%";
+  }
+  let briTimer = null;
+  $("brightness").addEventListener("input", () => {
+    $("brightnessVal").textContent = $("brightness").value + "%";
+    clearTimeout(briTimer);
+    briTimer = setTimeout(() => setBrightness(+$("brightness").value), 500);
+  });
+
+  // performance (mice): DPI + polling rate
+  $("dpiApply").addEventListener("click", () => setDpiWeb(+$("dpiInput").value));
+  $("dpiInput").addEventListener("keydown", (e) => { if (e.key === "Enter") setDpiWeb(+$("dpiInput").value); });
+  $("pollSelect").addEventListener("change", (e) => { if (e.target.value) setPollWeb(+e.target.value); });
 
   navigator.hid.addEventListener("connect", (e) => {
     refresh();

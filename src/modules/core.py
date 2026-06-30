@@ -3,7 +3,7 @@
 import drivers
 import transport
 
-ANIMATIONS = ("spectrum", "breathing", "wave")
+ANIMATIONS = ("spectrum", "breathing", "wave", "reactive")
 
 
 def parse_color(s):
@@ -52,20 +52,81 @@ def connected_list():
     return out
 
 
-_HZ = {0x01: 1000, 0x02: 500, 0x03: 125}
+_HZ = {0x01: 1000, 0x02: 500, 0x08: 125}        # standard polling-rate codes (openrazer)
+_READ_TXNS = (0xFF, 0x1F, 0x3F)                 # GET fallback order when the device's txn is unknown
+
+
+def _dedup(seq):
+    out = []
+    for x in seq:
+        if x not in out:
+            out.append(x)
+    return out
+
+
+def _query(pid, make_request):
+    """Send a GET request and return the 90-byte reply with success status (0x02), or None.
+
+    Tries the device's own transaction id first, then common fallbacks -- a GET only
+    answers when the txn matches the device's bucket (0xff/0x1f/0x3f).
+    """
+    dev = drivers.get(pid)
+    txns = _dedup(([dev.txn] if dev else []) + list(_READ_TXNS))
+    for path in transport.control_paths(pid):
+        for txn in txns:
+            try:
+                r = transport.get_response(path, make_request(txn))
+            except OSError:
+                break                       # this path is unusable -- move to the next
+            if r and r[0] == 0x02:          # status success
+                return r
+    return None
 
 
 def read_hz(pid):
     """Polling rate in Hz read from the device, or None if it can't be read."""
-    req = drivers.protocol.razer_report(0x00, 0x85, 0x01, b"", 0xFF)   # get polling rate
-    for p in transport.control_paths(pid):
-        try:
-            r = transport.get_response(p, req)
-        except OSError:
-            continue
-        if r[0] == 0x02 and r[8]:           # status success + a real rate code
-            return _HZ.get(r[8]) or (1000 // r[8] if 1 <= r[8] <= 8 else None)
-    return None
+    r = _query(pid, drivers.protocol.q_poll)
+    if not r or not r[8]:
+        return None
+    code = r[8]
+    return _HZ.get(code) or (1000 // code if 1 <= code <= 8 else None)
+
+
+def read_firmware(pid):
+    r = _query(pid, drivers.protocol.q_firmware)
+    return f"{r[8]}.{r[9]}" if r else None
+
+
+def read_serial(pid):
+    r = _query(pid, drivers.protocol.q_serial)
+    if not r:
+        return None
+    s = bytes(r[8:30]).split(b"\x00", 1)[0].decode("ascii", "ignore").strip()
+    return s or None
+
+
+def read_battery(pid):
+    """Battery charge 0-100, or None (wired/unsupported)."""
+    r = _query(pid, drivers.protocol.q_battery)
+    return round(r[9] * 100 / 255) if r else None
+
+
+def read_charging(pid):
+    r = _query(pid, drivers.protocol.q_charging)
+    return bool(r[9]) if r else None
+
+
+def read_dpi(pid):
+    """(x, y) DPI read from the device, or None."""
+    r = _query(pid, drivers.protocol.q_dpi)
+    return ((r[9] << 8) | r[10], (r[11] << 8) | r[12]) if r else None
+
+
+def read_status(pid):
+    """Everything readable from the device (each value None if unavailable)."""
+    return {"hz": read_hz(pid), "dpi": read_dpi(pid), "battery": read_battery(pid),
+            "charging": read_charging(pid), "firmware": read_firmware(pid),
+            "serial": read_serial(pid)}
 
 
 def select_targets(selector=None):
@@ -101,20 +162,18 @@ def select_targets(selector=None):
         raise SystemExit(f"bad -d {selector!r} (use a list number, a pid like 008a, or 'all')")
 
 
-def apply(pid, action, rgb, save=True, method=None, txn=None, led=None):
-    """Run `action` on the device with this pid. Returns (label, method)."""
+def _meta(pid, method=None, txn=None, led=None):
+    """(method, txn, led, label) for a pid, honoring overrides; unknown -> custom/0x3f/0x00."""
     dev = drivers.get(pid)
     if dev:
-        method, txn, led = method or dev.method, dev.txn if txn is None else txn, dev.led if led is None else led
-        label = dev.name
-    else:
-        method, txn, led = method or 'custom', 0x3F if txn is None else txn, 0x00 if led is None else led
-        label = f"unknown 1532:{pid:04x}"
-    try:
-        reports = drivers.build(method, action, rgb, txn, led, save)
-    except NotImplementedError as e:
-        raise SystemExit(f"{label}: {e}")
+        return (method or dev.method, dev.txn if txn is None else txn,
+                dev.led if led is None else led, dev.name)
+    return (method or 'custom', 0x3F if txn is None else txn,
+            0x00 if led is None else led, f"unknown 1532:{pid:04x}")
 
+
+def _send(pid, label, reports):
+    """Push a report sequence to the device's control collection (tries each)."""
     paths = transport.control_paths(pid)
     if not paths:
         raise SystemExit(f"{label}: no 1532:{pid:04x} device found (plugged in?)")
@@ -123,7 +182,56 @@ def apply(pid, action, rgb, save=True, method=None, txn=None, led=None):
         try:
             for rep in reports:
                 transport.set_feature(path, rep)
-            return label, method
+            return
         except OSError as e:
             last = e
     raise SystemExit(f"{label}: every candidate collection rejected the report (last: {last})")
+
+
+def apply(pid, action, rgb, save=True, method=None, txn=None, led=None, **opts):
+    """Run a lighting `action` on the device with this pid. Returns (label, method).
+
+    opts may carry rgb2 / speed / direction for breathing-dual / reactive / wave.
+    """
+    method, txn, led, label = _meta(pid, method, txn, led)
+    try:
+        reports = drivers.build(method, action, rgb, txn, led, save, **opts)
+    except NotImplementedError as e:
+        raise SystemExit(f"{label}: {e}")
+    _send(pid, label, reports)
+    return label, method
+
+
+def set_brightness(pid, pct, save=True, txn=None, led=None):
+    """Set brightness 0-100%. Returns the device label."""
+    method, txn, led, label = _meta(pid, txn=txn, led=led)
+    level = round(max(0, min(100, pct)) * 255 / 100)
+    _send(pid, label, drivers.protocol.brightness(method, level, txn, led, store=save))
+    return label
+
+
+def _multi_txn(pid, label, build_one, txn):
+    """Send a write under every likely txn (writes can't be confirmed, so the device
+    honors whichever matches and ignores the rest). If txn is given, use only that."""
+    _, dtxn, _l, _lab = _meta(pid, txn=txn)
+    txns = [txn] if txn is not None else _dedup([dtxn, 0xFF, 0x1F, 0x3F])
+    reports = []
+    for t in txns:
+        reports += build_one(t)
+    _send(pid, label, reports)
+
+
+def set_dpi(pid, x, y=None, txn=None):
+    """Set DPI (x, or x and y). Returns (label, (x, y))."""
+    _, _t, _l, label = _meta(pid, txn=txn)
+    y = x if y is None else y
+    _multi_txn(pid, label, lambda t: drivers.protocol.set_dpi(x, y, t), txn)
+    return label, (x, y)
+
+
+def set_poll(pid, hz, txn=None):
+    """Set polling rate (1000/500/125 Hz). Returns the device label."""
+    _, _t, _l, label = _meta(pid, txn=txn)
+    drivers.protocol.set_poll(hz, 0)               # validate hz early (raises ValueError)
+    _multi_txn(pid, label, lambda t: drivers.protocol.set_poll(hz, t), txn)
+    return label
