@@ -30,8 +30,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: 
 input[type=range]::-moz-range-thumb { height: 16px; width: 16px; border-radius: 9999px; background: #fafafa;
   border: 2px solid #0a0a0a; cursor: pointer; }
 
-.pulse-dot { animation: pulse 2s infinite; }
-@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, .6) } 70% { box-shadow: 0 0 0 7px rgba(16, 185, 129, 0) } 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0) } }
+.pulse-dot { box-shadow: 0 0 7px 1px rgba(16, 185, 129, .6); }   /* static glow — no continuous animation */
 
 .tip { position: relative; }
 .tip:hover .tip-body { opacity: 1; transform: translateY(0); pointer-events: auto; }
@@ -46,30 +45,24 @@ input[type=range]::-moz-range-thumb { height: 16px; width: 16px; border-radius: 
 .toast-in { animation: toastIn .3s ease-out; }
 @keyframes toastIn { from { opacity: 0; transform: translateX(12px) } to { opacity: 1; transform: none } }
 
-/* --- polish ------------------------------------------------------------- */
-/* Panels: a faint top sheen + a hairline light along the top edge for depth. */
-.panel { position: relative; background-image: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,0) 140px); }
+/* --- polish (clean, minimal glow) --------------------------------------- */
+/* Panels: a faint hairline light along the top edge for a little depth. */
+.panel { position: relative; }
 .panel::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 1px; border-radius: inherit;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,.14), transparent); }
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.08), transparent); }
 
-/* Brand logo tile: soft emerald glow. */
-.logo-tile { box-shadow: 0 0 26px -6px rgba(16,185,129,.55); }
+/* Getting-started step cards: a gentle lift on hover. */
+.step { transition: transform .14s ease, border-color .14s; }
+.step:hover { transform: translateY(-1px); border-color: rgba(16,185,129,.22); }
 
-/* Getting-started step cards: gentle lift + accent on hover. */
-.step { transition: transform .14s ease, border-color .14s, background .14s; }
-.step:hover { transform: translateY(-2px); border-color: rgba(16,185,129,.3); background: rgba(16,185,129,.04); }
-
-/* Effect buttons: add an emerald glow to the existing hover-lift. */
-.fx:hover { border-color: rgba(16,185,129,.5); box-shadow: 0 8px 24px -12px rgba(16,185,129,.55), inset 0 1px 0 rgba(255,255,255,.06); }
-
-/* Keycaps: real keycap feel — top sheen, inset highlight, soft drop shadow.
-   The LED color is set via inline background-color; this only layers a sheen. */
-.keycap { background-image: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,0) 42%, rgba(0,0,0,.30));
-  box-shadow: 0 1px 2px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.14); transition: filter .1s, transform .06s; }
-.keycap:hover { filter: brightness(1.18); }
+/* Keycaps: clean beveled keycap — thin edge + subtle top-light / bottom-shade.
+   The LED color is the inline background-color; this only adds the bevel. */
+.keycap { border: 1px solid rgba(0,0,0,.5);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.12), inset 0 -2px 3px rgba(0,0,0,.30), 0 1px 1px rgba(0,0,0,.35);
+  transition: filter .1s, transform .05s; }
+.keycap:hover { filter: brightness(1.15); }
 .keycap:active { transform: translateY(1px); }
 
 /* Section eyebrow: a small emerald bar before a step title. */
 .eyebrow { display: inline-flex; align-items: center; gap: .5rem; }
-.eyebrow::before { content: ""; width: 3px; height: 12px; border-radius: 2px;
-  background: linear-gradient(180deg, #34d399, #10b981); box-shadow: 0 0 8px rgba(16,185,129,.55); }
+.eyebrow::before { content: ""; width: 3px; height: 12px; border-radius: 2px; background: #10b981; }

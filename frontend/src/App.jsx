@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_PID, getDevice } from "./lib/devices.js";
+import { matrixFor, zonesFor } from "./lib/matrix.js";
+import { layoutFor } from "./lib/keyLayout.js";
 import { buildReports, buildCustomFrame, brightnessReport, setDpiReport, setPollReport, setPoll2Report,
          setScrollModeReport, setScrollAccelReport, setSmartReelReport, setGameModeReport, setMacroModeReport } from "./lib/protocol.js";
-import PerKey from "./components/PerKey.jsx";
+import MatrixPad from "./components/MatrixPad.jsx";
+import ZoneEditor from "./components/ZoneEditor.jsx";
 import DeviceControls from "./components/DeviceControls.jsx";
 import { VID, supported, listDevices, requestDevices, indexByPid, sendReports, readHz, readInfo } from "./lib/hid.js";
 import { clamp, hex4, rgbToHex, QUICK, parseColor, describe } from "./lib/color.js";
@@ -35,6 +38,8 @@ export default function App() {
   const [info, setInfo] = useState(null);
   const [reading, setReading] = useState(false);
   const [sponsor, setSponsor] = useState(true);
+  const [kbOpen, setKbOpen] = useState(false);        // lazy-mount the heavy per-LED cards only when opened
+  const [mouseOpen, setMouseOpen] = useState(false);
 
   const applyTimer = useRef(null);
   const briTimer = useRef(null);
@@ -240,6 +245,14 @@ export default function App() {
   const pids = [...devicesByPid.keys()].sort((a, b) => a - b);
   const dev = currentPid != null ? getDevice(currentPid) : null;
   const multi = dev && dev.method !== "custom" && dev.method !== "logo";   // single-LED can't wave/react
+  // split the per-LED editor into a Keyboard card and a Mouse card by device type
+  const cat = dev?.category;
+  const matrix = matrixFor(currentPid);
+  const layout = layoutFor(matrix);
+  const zones = zonesFor(currentPid);
+  const showKb = !dev || cat === "keyboard";
+  const showMouse = !dev || cat !== "keyboard";
+  const mouseGrid = !!(matrix && dev && cat !== "keyboard");   // real mouse/accessory underglow strip
   const metaBase = currentPid == null ? "" : dev
     ? `method ${dev.method} · txn 0x${dev.txn.toString(16)} · led 0x${dev.led.toString(16)}`
     : "unknown model · falls back to custom / txn 3f";
@@ -268,7 +281,7 @@ export default function App() {
     <>
       <div id="toasts" className="pointer-events-none fixed bottom-4 right-4 z-40 flex w-80 max-w-[90vw] flex-col gap-2">
         {toasts.map((tt) => (
-          <div key={tt.id} className={"toast-in pointer-events-auto rounded-lg border px-4 py-3 text-sm shadow-xl backdrop-blur " + (
+          <div key={tt.id} className={"toast-in pointer-events-auto rounded-lg border px-4 py-3 text-sm shadow-xl " + (
             tt.kind === "err" ? "border-red-500/40 bg-red-950/80 text-red-100"
             : tt.kind === "warn" ? "border-amber-500/40 bg-amber-950/80 text-amber-100"
             : "border-emerald-500/40 bg-emerald-950/80 text-emerald-100")}>{tt.msg}</div>
@@ -276,7 +289,7 @@ export default function App() {
       </div>
 
       {sponsor && (
-        <div id="sponsor" className="fixed top-4 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-pink-500/30 bg-neutral-900/95 backdrop-blur-xl p-4 pr-9 shadow-2xl shadow-pink-950/30">
+        <div id="sponsor" className="fixed top-4 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-pink-500/30 bg-neutral-900/95 p-4 pr-9 shadow-2xl shadow-pink-950/30">
           <button onClick={() => setSponsor(false)} aria-label="Close" className="absolute top-2.5 right-2.5 grid h-6 w-6 place-items-center rounded-md text-neutral-500 hover:bg-white/10 hover:text-neutral-200 transition">
             <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l8 8M14 6l-8 8" /></svg>
           </button>
@@ -323,7 +336,7 @@ export default function App() {
         {!HID && <div {...html(t("unsupported"))} className="mb-6 rounded-xl border border-red-800/60 bg-red-950/40 p-4 text-sm text-red-300" />}
 
         <fieldset disabled={!HID} className="contents">
-        <div className="panel rounded-2xl border border-white/5 bg-neutral-900/70 backdrop-blur-xl p-5 sm:p-6 shadow-2xl shadow-emerald-950/30">
+        <div className="panel rounded-2xl border border-white/5 bg-neutral-900/85 p-5 sm:p-6 shadow-2xl shadow-emerald-950/30">
           <div className="grid gap-7 lg:grid-cols-[1.55fr_1fr] lg:gap-8">
 
             {/* LEFT: device + color */}
@@ -347,7 +360,7 @@ export default function App() {
                     <span className={"pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full " + (pids.length ? "bg-emerald-400 pulse-dot" : "bg-neutral-600")} />
                     <svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" viewBox="0 0 20 20" fill="currentColor"><path d="M5.5 7.5 10 12l4.5-4.5" /></svg>
                   </div>
-                  <button onClick={connect} className="rounded-lg bg-emerald-500 hover:bg-emerald-400 hover:shadow-glow px-4 py-2.5 text-sm font-bold text-black transition">{t("connect")}</button>
+                  <button onClick={connect} className="rounded-lg bg-emerald-500 hover:bg-emerald-400 px-4 py-2.5 text-sm font-bold text-black transition">{t("connect")}</button>
                 </div>
                 <p className="mt-2 text-[11px] font-mono text-neutral-500">{metaText}</p>
                 <p className="mt-1 text-[11px] font-mono text-emerald-400/80">{infoText}</p>
@@ -369,7 +382,7 @@ export default function App() {
                 <div className="flex gap-3">
                   <input id="picker" type="color" value={rgbToHex(rgb)} onChange={(e) => setColor(parseColor(e.target.value), { apply: true })} onBlur={() => applyNow("static", rgb)} className="h-24 w-16 shrink-0 cursor-pointer rounded-xl ring-1 ring-white/10" />
                   <div id="preview" className="relative flex-1 rounded-xl ring-1 ring-white/10 grid place-items-center min-h-24" style={{ background: rgbToHex(rgb) }}>
-                    <span className="rounded-md bg-black/40 px-2 py-1 text-xs font-mono font-semibold text-white backdrop-blur">{`${rgbToHex(rgb).toUpperCase()}  ·  rgb(${rgb.join(", ")})`}</span>
+                    <span className="rounded-md bg-black/55 px-2 py-1 text-xs font-mono font-semibold text-white">{`${rgbToHex(rgb).toUpperCase()}  ·  rgb(${rgb.join(", ")})`}</span>
                   </div>
                 </div>
 
@@ -420,7 +433,7 @@ export default function App() {
                     const dark = name === "white" || name === "yellow";
                     return (
                       <button key={name} onClick={() => { setColor(c); applyNow("static", c); }}
-                              className={"swatch rounded-xl px-2 py-3.5 text-xs font-bold capitalize ring-1 ring-inset ring-black/20 shadow-lg shadow-black/40 hover:ring-2 hover:ring-white/60 " + (dark ? "text-black/80" : "text-white drop-shadow")}
+                              className={"swatch rounded-xl px-2 py-3.5 text-xs font-bold capitalize ring-1 ring-inset ring-black/20 shadow-md shadow-black/30 hover:ring-2 hover:ring-white/60 " + (dark ? "text-black/80" : "text-white drop-shadow")}
                               style={{ background: `rgb(${c.join(",")})` }}>{t("preset_" + name)}</button>
                     );
                   })}
@@ -513,14 +526,27 @@ export default function App() {
           </div>
         </div>
 
-        <details className="panel mt-5 rounded-2xl border border-white/5 bg-neutral-900/70 backdrop-blur-xl p-5 sm:p-6 group">
-          <summary className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 select-none">
-            <svg className="h-3.5 w-3.5 text-emerald-400 transition group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7.5 5.5 12 10l-4.5 4.5" /></svg>
-            <span>{t("keysTitle")}</span>
-          </summary>
-          <p className="mt-2.5 mb-4 text-[11px] text-neutral-500">{t("keysHelp")}</p>
-          <PerKey currentPid={currentPid} accent={rgb} applyFrame={applyFrame} applyZone={applyZone} />
-        </details>
+        {showKb && matrix && (
+          <details onToggle={(e) => setKbOpen(e.currentTarget.open)} className="panel mt-5 rounded-2xl border border-white/5 bg-neutral-900/85 p-5 sm:p-6 group">
+            <summary className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 select-none">
+              <svg className="h-3.5 w-3.5 text-emerald-400 transition group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7.5 5.5 12 10l-4.5 4.5" /></svg>
+              <span>{t("kbTitle")}</span>
+            </summary>
+            <p className="mt-2.5 mb-4 text-[11px] text-neutral-500">{t("kbHelp")}</p>
+            {kbOpen && <MatrixPad matrix={matrix} layout={layout} accent={rgb} applyFrame={applyFrame} />}
+          </details>
+        )}
+        {showMouse && (zones || mouseGrid) && (
+          <details onToggle={(e) => setMouseOpen(e.currentTarget.open)} className="panel mt-5 rounded-2xl border border-white/5 bg-neutral-900/85 p-5 sm:p-6 group">
+            <summary className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 select-none">
+              <svg className="h-3.5 w-3.5 text-emerald-400 transition group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7.5 5.5 12 10l-4.5 4.5" /></svg>
+              <span>{t("mouseTitle")}</span>
+            </summary>
+            <p className="mt-2.5 mb-4 text-[11px] text-neutral-500">{t("mouseHelp")}</p>
+            {mouseOpen && zones && <ZoneEditor zones={zones} currentPid={currentPid} accent={rgb} applyZone={applyZone} />}
+            {mouseOpen && mouseGrid && <div className={zones ? "mt-5" : ""}><MatrixPad matrix={matrix} layout={null} accent={rgb} applyFrame={applyFrame} /></div>}
+          </details>
+        )}
         </fieldset>
 
         <details className="panel mt-5 rounded-2xl border border-white/5 bg-neutral-900/50 p-5 text-sm group">

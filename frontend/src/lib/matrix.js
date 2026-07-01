@@ -87,4 +87,7 @@ export function matrixFor(pid) {
   return null;                                                // mouse/other w/o known matrix
 }
 
-export const zonesFor = (pid) => (pid != null && ZONES[pid]) || null;
+export function zonesFor(pid) {
+  if (pid != null) return ZONES[pid] || null;
+  return [SCROLL, LOGO, LEFT, RIGHT];   // demo (no device): preview the multi-zone mouse editor
+}

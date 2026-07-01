@@ -50,11 +50,16 @@ export const EN = {
   // per-key / per-zone painter
   keysTitle: "Per-key / per-zone",
   keysHelp: "Paint individual keys or zones. Applies live — watch the device to see which cell is which.",
+  kbTitle: "⌨ Keyboard — per key",
+  kbHelp: "Paint individual keys. Applies live — watch the board to see which key is which.",
+  mouseTitle: "🖱 Mouse — per LED",
+  mouseHelp: "Give each LED its own color — logo, scroll wheel, side strips, and any underglow.",
   keysBase: "Base color", keysAccent: "Accent (paint)",
   keysFill: "Fill all", keysApply: "Apply frame", keysClear: "Reset",
   keysViewKeyboard: "⌨ Keyboard", keysViewGrid: "▦ Grid",
   keysNoMatrix: "This device has no per-key matrix; use zones or a solid color.",
-  zonesTitle: "Zones",
+  zonesTitle: "Zones — each LED its own color",
+  zonesAll: "Set all → accent",
   // device controls
   featTitle: "Device controls",
   featHelp: "Stored on the device. Shown for the type that supports each control.",

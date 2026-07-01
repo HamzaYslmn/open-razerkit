@@ -13,11 +13,16 @@ export default function KeyboardLayout({ layout, cells, cols, onPaint }) {
     return () => window.removeEventListener("pointerup", up);
   }, []);
 
-  const colorAt = (r, c) => rgbToHex(cells[r * cols + c] || [0, 0, 0]);
+  const cellAt = (r, c) => cells[r * cols + c] || [0, 0, 0];
+  // legend contrast: dark text on bright keys, light text on dark keys
+  const labelColor = (r, c) => {
+    const [rr, gg, bb] = cellAt(r, c);
+    return (0.299 * rr + 0.587 * gg + 0.114 * bb) > 140 ? "#0a0a0a" : "#d4d4d8";
+  };
 
   return (
     <div className="overflow-x-auto pb-1">
-      <div className="w-max space-y-1 select-none">
+      <div className="w-max select-none space-y-1 rounded-xl bg-neutral-950/60 p-2.5 ring-1 ring-black/50">
         {layout.layout.map((row, ri) => (
           <div key={ri} className="flex gap-1">
             {row.map((k, ki) => (
@@ -25,9 +30,9 @@ export default function KeyboardLayout({ layout, cells, cols, onPaint }) {
                       onPointerDown={() => { painting.current = true; onPaint(k.r, k.c); }}
                       onPointerEnter={() => { if (painting.current) onPaint(k.r, k.c); }}
                       title={`${k.label} — r${k.r} c${k.c}`}
-                      className="keycap grid shrink-0 place-items-center rounded-[5px] text-[8px] font-semibold leading-none overflow-hidden"
-                      style={{ height: U - 2, width: (k.w || 1) * U - 2, marginLeft: (k.gap || 0) * U, backgroundColor: colorAt(k.r, k.c) }}>
-                <span className="mix-blend-difference text-white">{k.label}</span>
+                      className="keycap grid shrink-0 place-items-center rounded-[5px] text-[8.5px] font-semibold leading-none overflow-hidden"
+                      style={{ height: U - 2, width: (k.w || 1) * U - 2, marginLeft: (k.gap || 0) * U, backgroundColor: rgbToHex(cellAt(k.r, k.c)), color: labelColor(k.r, k.c) }}>
+                {k.label}
               </button>
             ))}
           </div>
