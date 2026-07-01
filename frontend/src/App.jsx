@@ -7,7 +7,7 @@ import { buildReports, buildCustomFrame, brightnessReport, setDpiReport, setPoll
 import MatrixPad from "./components/MatrixPad.jsx";
 import ZoneEditor from "./components/ZoneEditor.jsx";
 import DeviceControls from "./components/DeviceControls.jsx";
-import { VID, supported, listDevices, requestDevices, indexByPid, sendReports, readHz, readInfo } from "./lib/hid.js";
+import { VID, supported, listDevices, requestDevices, indexByPid, sendReports, readHz, readDpi, readInfo } from "./lib/hid.js";
 import { clamp, hex4, rgbToHex, QUICK, parseColor, describe } from "./lib/color.js";
 import { store, persist } from "./lib/store.js";
 import { makeT, useI18n } from "./i18n/index.jsx";
@@ -107,6 +107,15 @@ export default function App() {
     } catch (e) { setStatus(e.message, "err"); toast(e.message, "err"); }
   }
 
+  // re-read the live values (Hz + DPI) and update the display for the given device
+  const refreshLive = async (pid) => {
+    const cands = live.current.devicesByPid.get(pid), d = getDevice(pid);
+    const hz = await readHz(cands, pid, d);
+    if (live.current.currentPid === pid && hz != null) setHz(hz);
+    const dpi = await readDpi(cands, pid, d);
+    if (live.current.currentPid === pid && dpi) setInfo((prev) => (prev ? { ...prev, dpi } : { battery: null, charging: null, fw: null, serial: null, dpi }));
+  };
+
   async function setDpiWeb(spec) {
     const pid = live.current.currentPid;
     if (pid == null) { toast(t("connectFirst"), "warn"); return; }
@@ -115,8 +124,11 @@ export default function App() {
     if (!(x >= 100 && x <= 30000 && y >= 100 && y <= 30000)) { toast(t("dpiRange"), "err"); return; }
     const reports = [];
     for (const tx of txnCandidates()) reports.push(...setDpiReport(x, y, tx));
-    try { await sendReports(live.current.devicesByPid.get(pid), reports); setStatus(t("okDpi", { x: x === y ? x : `${x}×${y}` }), "ok"); }
-    catch (e) { setStatus(e.message, "err"); toast(e.message, "err"); }
+    try {
+      await sendReports(live.current.devicesByPid.get(pid), reports);
+      setStatus(t("okDpi", { x: x === y ? x : `${x}×${y}` }), "ok");
+      setTimeout(() => refreshLive(pid), 300);                       // confirm the change from the device
+    } catch (e) { setStatus(e.message, "err"); toast(e.message, "err"); }
   }
   async function setPollWeb(rate) {
     const pid = live.current.currentPid;
@@ -125,8 +137,11 @@ export default function App() {
     let reports = [];
     try { for (const tx of txnCandidates()) reports.push(...build(rate, tx)); }
     catch (e) { toast(e.message, "err"); return; }
-    try { await sendReports(live.current.devicesByPid.get(pid), reports); setStatus(t("okPoll", { hz: rate }), "ok"); }
-    catch (e) { setStatus(e.message, "err"); toast(e.message, "err"); }
+    try {
+      await sendReports(live.current.devicesByPid.get(pid), reports);
+      setStatus(t("okPoll", { hz: rate }), "ok");
+      setTimeout(() => refreshLive(pid), 300);                       // confirm the change from the device
+    } catch (e) { setStatus(e.message, "err"); toast(e.message, "err"); }
   }
   // onboard toggles (scroll modes / game+macro) — fire-and-forget, no readback
   async function sendSimple(reports, what, val) {
@@ -241,6 +256,20 @@ export default function App() {
     return () => { alive = false; };
   }, [currentPid]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // live poll: re-read Hz + DPI every 3s for mice, so external changes show up.
+  // Self-scheduling (no overlap) and paused while the tab is hidden.
+  useEffect(() => {
+    const pid = currentPid;
+    if (pid == null || getDevice(pid)?.category !== "mouse") return;
+    let alive = true, timer;
+    const tick = async () => {
+      if (!document.hidden) await refreshLive(pid);
+      if (alive) timer = setTimeout(tick, 3000);
+    };
+    timer = setTimeout(tick, 3000);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [currentPid]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // --- derived view data ---
   const pids = [...devicesByPid.keys()].sort((a, b) => a - b);
   const dev = currentPid != null ? getDevice(currentPid) : null;
@@ -314,7 +343,7 @@ export default function App() {
             <img src={logo} alt="RazerKit" className="h-full w-full object-cover" />
           </span>
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-black tracking-tight bg-gradient-to-r from-emerald-300 to-emerald-500 bg-clip-text text-transparent">RAZERKIT</h1>
+            <h1 className="text-2xl font-black tracking-tight bg-gradient-to-r from-emerald-300 to-emerald-500 bg-clip-text text-transparent">RΛZΞR - Kit</h1>
             <p className="text-xs text-neutral-500">{t("headerSub")}</p>
           </div>
           <select value={lang} onChange={(e) => setLang(e.target.value)} aria-label="Language" className="shrink-0 rounded-lg bg-neutral-800/80 border border-neutral-700 px-2 py-1.5 text-xs font-semibold focus:border-emerald-500 focus:outline-none">

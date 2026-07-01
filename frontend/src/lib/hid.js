@@ -62,6 +62,13 @@ export async function readHz(cands, pid, dev) {
   return HZ[code] || (code >= 1 && code <= 8 ? Math.floor(1000 / code) : null);
 }
 
+// Lightweight DPI-only read (for the 3s live poll; readInfo does the full read).
+export async function readDpi(cands, pid, dev) {
+  const dv = await queryDevice(cands, pid, dev, qDpi);
+  if (!dv) return null;
+  return [(dv.getUint8(9) << 8) | dv.getUint8(10), (dv.getUint8(11) << 8) | dv.getUint8(12)];
+}
+
 export async function readInfo(cands, pid, dev) {
   // Battery / charging / firmware / DPI / serial -- each null if unavailable.
   const out = { battery: null, charging: null, fw: null, serial: null, dpi: null };
