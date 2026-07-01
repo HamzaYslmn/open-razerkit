@@ -67,6 +67,15 @@ export const EN = {
   scrollFree: "Free-spin", scrollTactile: "Tactile",
   accelLabel: "Scroll acceleration", smartReelLabel: "Smart-reel",
   gameModeLabel: "Game mode", macroModeLabel: "Macro mode",
+  // Blade laptop
+  bladeTitle: "💻 Laptop — performance & battery",
+  bladeHelp: "Performance mode and battery charge limit for Razer Blade laptops — same HID protocol, no Synapse.",
+  bladeWarn: "⚠️ Experimental & model-specific — verified on the Blade 16 (2024) only. Performance mode also sets the firmware fan curve. Close Synapse first.",
+  bladeForce: "This Blade isn't verified — enable the controls anyway (at your own risk)",
+  bladePerf: "Performance mode",
+  perf_balanced: "Balanced", perf_gaming: "Gaming", perf_creator: "Creator",
+  bladeCharge: "Battery charge limit", bladeChargeOff: "No limit",
+  bladeReach: "The browser couldn't reach the Blade's control interface — try the CLI.",
   // dynamic
   connectFirst: "Connect a device first.",
   noDeviceSelected: "No device selected.",

@@ -332,3 +332,32 @@ def _set_led_state(led, on):
 
 def set_game_mode(on):  return _set_led_state(GAME_LED, on)
 def set_macro_mode(on): return _set_led_state(MACRO_LED, on)
+
+
+# --- Razer Blade laptop: performance mode / battery (EC via the keyboard MCU)
+# Opcodes verified on Blade 16 2024 (1532:02b7); MODEL/FIRMWARE-SPECIFIC (see
+# BLADE_VERIFIED in core). Both fan zones (1, 2) are addressed; args[0]=0x01
+# matters (0x00 may ACK but not apply). Performance mode sets the firmware fan
+# curve -- we intentionally do NOT expose a manual fan-rpm knob (thermal safety).
+BLADE_TXN = 0x1F
+PERF_MODES = {"balanced": 0, "gaming": 1, "creator": 2}
+
+
+def blade_perf(mode):
+    """Set performance mode (0=balanced/1=gaming/2=creator) with firmware/auto fan."""
+    mode &= 0xFF
+    return [razer_report(0x0D, 0x02, 0x04, bytes([0x01, z, mode, 0x00]), BLADE_TXN) for z in (1, 2)]
+
+
+def blade_charge(percent):
+    """Battery charge limit. percent falsy/None => off (0x41); else (pct|0x80). Needs the commit."""
+    raw = 0x41 if not percent else (int(percent) & 0x7F) | 0x80
+    return [razer_report(0x07, 0x12, 0x01, bytes([raw]), BLADE_TXN),
+            razer_report(0x07, 0x0F, 0x01, bytes([0x02]), BLADE_TXN)]      # required commit
+
+
+# Blade reads (send; transport reads the 90-byte reply). Response arg offsets
+# are into the reply: arg0 = byte[8], arg2 = byte[10]; status at byte[0] == 0x02.
+def q_blade_fan(zone):  return razer_report(0x0D, 0x88, 0x04, bytes([0x00, zone & 0xFF]), BLADE_TXN)  # resp arg2 * 100
+def q_blade_perf():     return razer_report(0x0D, 0x82, 0x04, bytes([0x00, 0x01]), BLADE_TXN)          # resp arg2 (0/1/2)
+def q_blade_charge():   return razer_report(0x07, 0x8F, 0x01, bytes([0x00]), BLADE_TXN)                # resp arg0

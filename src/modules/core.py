@@ -237,3 +237,88 @@ def set_poll(pid, hz, txn=None):
     build(hz, 0)                                   # validate hz early (raises ValueError)
     _multi_txn(pid, label, lambda t: build(hz, t), txn)
     return label
+
+
+# --- Razer Blade laptop: fan / performance / battery -------------------------
+# EC control via the keyboard MCU (txn 0x1f). Opcodes are MODEL/FIRMWARE-SPECIFIC
+# and verified only on Blade 16 2024 (1532:02b7); other Blades need --force.
+BLADE_VERIFIED = frozenset({0x02b7})
+_pr = drivers.protocol
+
+
+def _blade_guard(pid, force):
+    """Ensure pid is a Blade laptop with verified (or force-accepted) opcodes; returns its name."""
+    dev = drivers.get(pid)
+    name = dev.name if dev else ""
+    if "Blade" not in name:
+        raise SystemExit(f"fan/performance control is for Razer Blade laptops; "
+                         f"1532:{pid:04x} is {name or 'an unknown device'}")
+    if pid not in BLADE_VERIFIED and not force:
+        raise SystemExit(f"Blade opcodes are verified only on Blade 16 2024 (1532:02b7). "
+                         f"{name} (1532:{pid:04x}) is untested -- re-run with --force to try at your own risk.")
+    return name
+
+
+def _blade_query(pid, request):
+    """Send one pre-built Blade GET report (txn 0x1f) and return the 90-byte reply, or None."""
+    for path in transport.control_paths(pid):
+        try:
+            r = transport.get_response(path, request)
+        except OSError:
+            continue
+        if r and r[0] == 0x02:
+            return r
+    return None
+
+
+def read_perf_mode(pid):
+    r = _blade_query(pid, _pr.q_blade_perf())
+    return r[10] if r else None
+
+
+def read_fan_rpm(pid):
+    """[zone1_rpm, zone2_rpm], each None if unreadable."""
+    out = []
+    for z in (1, 2):
+        r = _blade_query(pid, _pr.q_blade_fan(z))
+        out.append(r[10] * 100 if r and r[10] else None)
+    return out
+
+
+def read_charge_limit(pid):
+    r = _blade_query(pid, _pr.q_blade_charge())
+    if not r:
+        return None
+    return None if r[8] == 0x41 else (r[8] & 0x7F)
+
+
+def blade_status(pid):
+    modes = {0: "balanced", 1: "gaming", 2: "creator"}
+    return {"perf": modes.get(read_perf_mode(pid)), "fan": read_fan_rpm(pid), "charge": read_charge_limit(pid)}
+
+
+def set_perf(pid, mode, force=False):
+    """Blade performance mode: balanced|gaming|creator (also restores auto fan). Returns label."""
+    name = _blade_guard(pid, force)
+    m = _pr.PERF_MODES.get(str(mode).lower())
+    if m is None:
+        raise SystemExit("perf mode must be balanced, gaming, or creator")
+    _send(pid, name, _pr.blade_perf(m))
+    return name
+
+
+def set_charge(pid, spec, force=False):
+    """Blade battery charge limit: 50-95, or 'off'/100 to disable. Returns (label, value)."""
+    name = _blade_guard(pid, force)
+    s = str(spec).lower()
+    if s in ("off", "none", "0", "100"):
+        pct = 0
+    else:
+        try:
+            pct = int(spec)
+        except (TypeError, ValueError):
+            raise SystemExit("charge limit must be 50-95, or 'off'")
+        if not (50 <= pct <= 95):
+            raise SystemExit("charge limit must be 50-95, or 'off'")
+    _send(pid, name, _pr.blade_charge(pct))
+    return name, ("off" if not pct else pct)

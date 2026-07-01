@@ -49,6 +49,7 @@ uv run python src/main.py red             # solid color (name, ff0000, or '255,0
 uv run python src/main.py spectrum        # on-device effect
 uv run python src/main.py breathing 00ff88
 uv run python src/main.py reactive ff0000 # light up on keypress/click (multi-zone)
+uv run python src/main.py starlight 00ff88 # twinkling stars (multi-zone)
 uv run python src/main.py off             # solid black
 uv run python src/main.py red -d all      # every connected Razer device
 uv run python src/main.py -m              # interactive menu
@@ -61,15 +62,29 @@ Other device-internal settings (stored on the device, no software needed afterwa
 ```bash
 uv run python src/main.py --brightness 60     # brightness 0-100
 uv run python src/main.py --dpi 1600          # mouse DPI (or --dpi 1600,800 for x,y)
-uv run python src/main.py --poll 500          # polling rate: 1000, 500, or 125 Hz
+uv run python src/main.py --poll 1000         # polling: 8000/4000/2000/1000/500/250/125 Hz (HyperPolling)
 uv run python src/main.py --info              # read battery, firmware, serial, DPI, Hz
 ```
+
+The **browser app** additionally has a **per-key keyboard editor** and a **per-zone mouse editor** (logo, scroll wheel, side strips, underglow), plus scroll-wheel modes and game/macro toggles.
+
+## 💻 Razer Blade laptop (performance & battery)
+
+Blade laptops expose **performance mode and the battery charge limit over the same USB-HID protocol** (the keyboard MCU bridges to the embedded controller), so RazerKit drives them too — no Synapse. Performance mode also sets the firmware fan curve; there's deliberately **no manual fan-rpm knob** (a bad fixed speed is a thermal risk).
+
+```bash
+uv run python src/main.py --perf gaming    # balanced | gaming | creator (also sets the fan curve)
+uv run python src/main.py --charge 80      # cap charging at 50-95%  (--charge off = no limit)
+uv run python src/main.py --info           # also shows perf mode / fan rpm / charge limit on a Blade
+```
+
+**GPU MUX / Optimus switching is _not_ possible here** — it isn't a HID command (it's the NVIDIA driver / vendor ACPI), so no HID tool, CLI *or* browser, can do it.
 
 ## 🌐 Browser app (no install)
 
 Don't want to install anything — not even Python? Open the **[web version](https://hamzayslmn.github.io/open-razerkit/)** in Chrome or Edge, click **Connect**, pick your device, and set colors/effects. It speaks the exact same Razer HID protocol from the browser via [WebHID](https://developer.mozilla.org/docs/Web/API/WebHID_API).
 
-- Same 267-model table, same color/effect builders as the CLI.
+- Same 281-model table, same color/effect builders as the CLI.
 - Runs entirely client-side — nothing is uploaded, no background process.
 - Or run it locally: `python -m http.server` in the repo, then open `http://localhost:8000/frontend/`.
 

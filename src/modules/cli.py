@@ -5,8 +5,9 @@ import sys
 
 import drivers
 from modules import settings
-from modules.core import (apply, describe, read_status, resolve_action,
-                          select_targets, set_brightness, set_dpi, set_poll)
+from modules.core import (apply, blade_status, describe, read_status, resolve_action,
+                          select_targets, set_brightness, set_charge, set_dpi,
+                          set_perf, set_poll)
 from modules.menu import list_connected, menu
 
 
@@ -37,6 +38,14 @@ def _print_info(pid):
         bits.append(f"fw {st['firmware']}")
     if st['serial']:
         bits.append(f"sn {st['serial']}")
+    if "Blade" in name:                              # laptop: also fan/perf/charge
+        bs = blade_status(pid)
+        if bs['perf']:
+            bits.append(f"perf {bs['perf']}")
+        if any(bs['fan']):
+            bits.append("fan " + "/".join(str(f) for f in bs['fan'] if f) + " rpm")
+        if bs['charge']:
+            bits.append(f"charge<={bs['charge']}%")
     print(f"{name}: " + ("  ".join(bits) if bits else "no readable info"))
 
 
@@ -55,6 +64,9 @@ def main(argv=None):
     p.add_argument('--brightness', type=int, metavar='PCT', help="set brightness 0-100")
     p.add_argument('--dpi', type=_dpi_arg, metavar='N', help="set mouse DPI: N or X,Y")
     p.add_argument('--poll', type=int, metavar='HZ', help="set polling rate: 8000/4000/2000/1000/500/250/125")
+    p.add_argument('--perf', choices=('balanced', 'gaming', 'creator'), help="Blade laptop: performance mode (sets the fan curve)")
+    p.add_argument('--charge', metavar='PCT', help="Blade laptop: battery charge limit 50-95, or 'off'")
+    p.add_argument('--force', action='store_true', help="allow Blade fan/perf on an untested (non-02b7) model")
     p.add_argument('--info', action='store_true', help="read battery/firmware/serial/DPI/Hz from the device")
     p.add_argument('--txn', type=lambda x: int(x, 16), help="advanced: override transaction id (hex)")
     p.add_argument('--led', type=lambda x: int(x, 16), help="advanced: override LED id (hex)")
@@ -75,7 +87,8 @@ def main(argv=None):
         return
     if args.menu:
         return menu()
-    ops = args.brightness is not None or args.dpi or args.poll or args.info
+    ops = (args.brightness is not None or args.dpi or args.poll or args.info
+           or args.perf or args.charge is not None)
     if args.action is None and not ops:  # bare run: menu on a real terminal, list if piped
         return menu() if sys.stdin.isatty() and sys.stdout.isatty() else list_connected()
 
@@ -101,6 +114,11 @@ def main(argv=None):
                 print(f"set {lbl} dpi -> {x}x{y}")
             if args.poll:
                 print(f"set {set_poll(pid, args.poll, txn=args.txn)} polling -> {args.poll} Hz")
+            if args.perf:
+                print(f"set {set_perf(pid, args.perf, force=args.force)} perf -> {args.perf}")
+            if args.charge is not None:
+                lbl, val = set_charge(pid, args.charge, force=args.force)
+                print(f"set {lbl} charge limit -> {val}{'' if val == 'off' else '%'}")
             if args.info:
                 _print_info(pid)
         except (SystemExit, ValueError) as e:   # one device failing shouldn't abort the rest
@@ -240,7 +258,19 @@ def _selftest():
     gm = pr.set_game_mode(True)[0]
     assert (gm[1], gm[6], gm[7]) == (0xFF, 0x03, 0x00) and (gm[8], gm[9], gm[10]) == (0x01, 0x08, 0x01)  # txn 0xFF, game LED on
     assert pr.set_macro_mode(False)[0][9] == 0x07                                      # macro LED id
-    for rep in cf + cfs + [stl, ssr, p2, ds, sm, gm]:                 # every new report: valid CRC
+    # Razer Blade laptop (ported from razerctl, verified 1532:02b7): txn 0x1f, fan/perf/charge
+    bp = pr.blade_perf(1)                                              # gaming, both fan zones, auto fan
+    assert len(bp) == 2 and (bp[0][1], bp[0][6], bp[0][7]) == (0x1F, 0x0D, 0x02)
+    assert (bp[0][8], bp[0][9], bp[0][10], bp[0][11]) == (0x01, 1, 1, 0x00) and bp[1][9] == 2
+    bc = pr.blade_charge(80)
+    assert (bc[0][6], bc[0][7], bc[0][8]) == (0x07, 0x12, 0xD0)        # 80 | 0x80
+    assert (bc[1][6], bc[1][7], bc[1][8]) == (0x07, 0x0F, 0x02)        # required commit
+    assert pr.blade_charge(0)[0][8] == 0x41                            # off
+    assert (pr.q_blade_perf()[1], pr.q_blade_perf()[6], pr.q_blade_perf()[7]) == (0x1F, 0x0D, 0x82)
+    assert (pr.q_blade_fan(1)[6], pr.q_blade_fan(1)[7]) == (0x0D, 0x88)
+    assert (pr.q_blade_charge()[6], pr.q_blade_charge()[7]) == (0x07, 0x8F)
+    assert drivers.get(0x02b7).name == 'Razer Blade 16 (2024)'        # verified model in registry
+    for rep in cf + cfs + [stl, ssr, p2, ds, sm, gm] + bp + bc:       # every new report: valid CRC
         c = 0
         for i in range(2, 88):
             c ^= rep[i]

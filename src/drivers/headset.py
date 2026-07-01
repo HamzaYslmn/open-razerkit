@@ -12,4 +12,5 @@ DEVICES = [
     (0x0520, 'Razer Kraken Tournament Edition', 'kraken', 0xff, 0x00),
     (0x0527, 'Razer Kraken Ultimate', 'kraken', 0xff, 0x00),
     (0x0560, 'Razer Kraken Kitty V2', 'kraken', 0xff, 0x00),
+    (0x0f03, 'Razer Tiamat 7.1 V2', 'ext_static', 0x3f, 0x00),
 ]

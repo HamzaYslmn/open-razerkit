@@ -245,3 +245,18 @@ const GAME_LED = 0x08, MACRO_LED = 0x07;
 const setLedState = (led, on) => [razerReport(0x03, 0x00, 0x03, [VARSTORE, led, on ? ON : OFF], 0xFF)];
 export const setGameModeReport  = (on) => setLedState(GAME_LED, on);
 export const setMacroModeReport = (on) => setLedState(MACRO_LED, on);
+
+// --- Razer Blade laptop: performance mode / battery (EC via keyboard MCU) -----
+// Verified on Blade 16 2024 (1532:02b7). txn 0x1f, both fan zones (1,2). Perf
+// mode drives the firmware fan curve — no manual fan-rpm knob (thermal safety).
+const BLADE_TXN = 0x1F;
+export const PERF_MODES = { balanced: 0, gaming: 1, creator: 2 };
+
+export function bladePerf(mode) {   // set perf mode (also restores firmware/auto fan)
+  return [1, 2].map((z) => razerReport(0x0D, 0x02, 0x04, [0x01, z, mode & 0xFF, 0x00], BLADE_TXN));
+}
+export function bladeCharge(percent) {   // charge limit; percent falsy => off (0x41). Needs the commit.
+  const raw = !percent ? 0x41 : (percent & 0x7F) | 0x80;
+  return [razerReport(0x07, 0x12, 0x01, [raw], BLADE_TXN),
+          razerReport(0x07, 0x0F, 0x01, [0x02], BLADE_TXN)];
+}

@@ -69,6 +69,7 @@ export async function readDpi(cands, pid, dev) {
   return [(dv.getUint8(9) << 8) | dv.getUint8(10), (dv.getUint8(11) << 8) | dv.getUint8(12)];
 }
 
+
 export async function readInfo(cands, pid, dev) {
   // Battery / charging / firmware / DPI / serial -- each null if unavailable.
   const out = { battery: null, charging: null, fw: null, serial: null, dpi: null };

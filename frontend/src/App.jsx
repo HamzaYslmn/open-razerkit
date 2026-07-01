@@ -3,10 +3,12 @@ import { DEFAULT_PID, getDevice } from "./lib/devices.js";
 import { matrixFor, zonesFor } from "./lib/matrix.js";
 import { layoutFor } from "./lib/keyLayout.js";
 import { buildReports, buildCustomFrame, brightnessReport, setDpiReport, setPollReport, setPoll2Report,
-         setScrollModeReport, setScrollAccelReport, setSmartReelReport, setGameModeReport, setMacroModeReport } from "./lib/protocol.js";
+         setScrollModeReport, setScrollAccelReport, setSmartReelReport, setGameModeReport, setMacroModeReport,
+         bladePerf, bladeCharge, PERF_MODES } from "./lib/protocol.js";
 import MatrixPad from "./components/MatrixPad.jsx";
 import ZoneEditor from "./components/ZoneEditor.jsx";
 import DeviceControls from "./components/DeviceControls.jsx";
+import LaptopControls from "./components/LaptopControls.jsx";
 import { VID, supported, listDevices, requestDevices, indexByPid, sendReports, readHz, readDpi, readInfo } from "./lib/hid.js";
 import { clamp, hex4, rgbToHex, QUICK, parseColor, describe } from "./lib/color.js";
 import { store, persist } from "./lib/store.js";
@@ -157,6 +159,21 @@ export default function App() {
   const onGameMode = (on) => sendSimple(setGameModeReport(on), t("gameModeLabel"), on ? "on" : "off");
   const onMacroMode = (on) => sendSimple(setMacroModeReport(on), t("macroModeLabel"), on ? "on" : "off");
 
+  // Razer Blade laptop: fan / performance / battery (same HID transport)
+  async function bladeSend(reports, what, val) {
+    const pid = live.current.currentPid;
+    if (pid == null) { toast(t("connectFirst"), "warn"); return; }
+    try { await sendReports(live.current.devicesByPid.get(pid), reports); setStatus(t("okSet", { what, val }), "ok"); }
+    catch (e) { setStatus(e.message, "err"); toast(t("bladeReach"), "err"); }
+  }
+  const onBladePerf = (mode) => bladeSend(bladePerf(PERF_MODES[mode]), t("bladePerf"), mode);
+  const onBladeCharge = (spec) => {
+    const off = String(spec).toLowerCase() === "off";
+    const pct = off ? 0 : +spec;
+    if (!off && !(pct >= 50 && pct <= 95)) { toast("50-95% or off", "err"); return; }
+    bladeSend(bladeCharge(pct), t("bladeCharge"), off ? "off" : pct + "%");
+  };
+
   // --- per-key frame + per-zone (custom lighting) ---
   const methodTxnLed = () => {
     const dev = getDevice(live.current.currentPid);
@@ -282,6 +299,8 @@ export default function App() {
   const showKb = !dev || cat === "keyboard";
   const showMouse = !dev || cat !== "keyboard";
   const mouseGrid = !!(matrix && dev && cat !== "keyboard");   // real mouse/accessory underglow strip
+  const isBlade = !!(dev && dev.name.includes("Blade"));       // laptop: fan/perf/charge
+  const bladeVerified = currentPid === 0x02b7;                 // Blade 16 2024 (razerctl-verified)
   const metaBase = currentPid == null ? "" : dev
     ? `method ${dev.method} · txn 0x${dev.txn.toString(16)} · led 0x${dev.led.toString(16)}`
     : "unknown model · falls back to custom / txn 3f";
@@ -574,6 +593,16 @@ export default function App() {
             <p className="mt-2.5 mb-4 text-[11px] text-neutral-500">{t("mouseHelp")}</p>
             {mouseOpen && zones && <ZoneEditor zones={zones} currentPid={currentPid} accent={rgb} applyZone={applyZone} />}
             {mouseOpen && mouseGrid && <div className={zones ? "mt-5" : ""}><MatrixPad matrix={matrix} layout={null} accent={rgb} applyFrame={applyFrame} /></div>}
+          </details>
+        )}
+        {isBlade && (
+          <details className="panel mt-5 rounded-2xl border border-white/5 bg-neutral-900/85 p-5 sm:p-6 group">
+            <summary className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 select-none">
+              <svg className="h-3.5 w-3.5 text-emerald-400 transition group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7.5 5.5 12 10l-4.5 4.5" /></svg>
+              <span>{t("bladeTitle")}</span>
+            </summary>
+            <p className="mt-2.5 mb-4 text-[11px] text-neutral-500">{t("bladeHelp")}</p>
+            <LaptopControls verified={bladeVerified} onPerf={onBladePerf} onCharge={onBladeCharge} />
           </details>
         )}
         </fieldset>
