@@ -192,15 +192,15 @@
             <span data-i18n="s3Title" class="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Step 3 · Effects (optional)</span>
             <p data-i18n="effectsHelp" class="mt-1 mb-2.5 text-[11px] text-neutral-500">These run on the device itself &mdash; no software needed to keep them going.</p>
             <div class="grid grid-cols-3 gap-2.5 sm:grid-cols-5 lg:grid-cols-2">
-              <button id="fxSpectrum" data-i18n-title="fxSpectrumTip" class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
+              <button id="fxSpectrum" data-i18n-title="fxSpectrumTip" title="Smoothly cycles through the whole rainbow, forever." class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
                 <span class="block text-base leading-none mb-1">🌈</span><span data-i18n="fxSpectrum">Spectrum</span><span data-i18n="fxSpectrumSub" class="block text-[9px] font-normal text-neutral-500">rainbow cycle</span></button>
-              <button id="fxBreathing" data-i18n-title="fxBreathingTip" class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
+              <button id="fxBreathing" data-i18n-title="fxBreathingTip" title="Fades the current color in and out. Black = random colors." class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
                 <span class="block text-base leading-none mb-1">🫧</span><span data-i18n="fxBreathing">Breathing</span><span data-i18n="fxBreathingSub" class="block text-[9px] font-normal text-neutral-500">fade in/out</span></button>
-              <button id="fxReactive" data-i18n-title="fxReactiveTip" class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
+              <button id="fxReactive" data-i18n-title="fxReactiveTip" title="Lights up the current color on each keypress/click, then fades. Needs a multi-zone device." class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
                 <span class="block text-base leading-none mb-1">⚡</span><span data-i18n="fxReactive">Reactive</span><span data-i18n="fxReactiveSub" class="block text-[9px] font-normal text-neutral-500">on keypress</span></button>
-              <button id="fxWave" data-i18n-title="fxWaveTip" class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
+              <button id="fxWave" data-i18n-title="fxWaveTip" title="A color wave that flows across the zones. Needs a multi-zone device." class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold">
                 <span class="block text-base leading-none mb-1">🌊</span><span data-i18n="fxWave">Wave</span><span data-i18n="fxWaveSub" class="block text-[9px] font-normal text-neutral-500">multi-zone</span></button>
-              <button id="fxOff" data-i18n-title="fxOffTip" class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-red-500/40 px-2 py-3 text-xs font-semibold">
+              <button id="fxOff" data-i18n-title="fxOffTip" title="Turns the lighting off (sets it to solid black)." class="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-red-500/40 px-2 py-3 text-xs font-semibold">
                 <span class="block text-base leading-none mb-1">⏻</span><span data-i18n="fxOff">Off</span><span data-i18n="fxOffSub" class="block text-[9px] font-normal text-neutral-500">lights out</span></button>
             </div>
           </section>
@@ -283,7 +283,6 @@
     </p>
   </main>
 
-  <script src="i18n/en.js"></script>
   <script src="i18n/tr.js"></script>
   <script src="devices.js"></script>
   <script src="protocol.js"></script>

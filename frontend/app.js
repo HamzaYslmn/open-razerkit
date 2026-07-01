@@ -28,21 +28,54 @@ const store = (() => { try { return JSON.parse(localStorage.getItem(STORE_KEY)) 
 store.perDevice = store.perDevice || {};   // hex pid -> { rgb, action }
 function persist() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch { /* private mode / full */ } }
 
-// --- i18n (en / tr; dictionaries in i18n/*.js) -------------------------------
+// --- i18n --------------------------------------------------------------------
+// English is the default: static text lives in index.html (captured below), and
+// these few non-DOM strings (toasts/status/presets) live here. Only Turkish gets
+// its own file (i18n/tr.js). Fallback is always English.
 let currentLang = "en";
+const EN = {
+  noDevices: "No devices — click Connect →",
+  connectFirst: "Connect a device first.",
+  noDeviceSelected: "No device selected.",
+  connected: "Connected: {name}",
+  disconnected: "Disconnected: {name}",
+  reading: "reading device…",
+  noUsable: "Granted {name}, but Chrome exposes no usable HID collection for it (its control interface is a protected mouse/keyboard collection). Use the CLI for this one.",
+  okApply: "OK  {label} → {desc}",
+  okBrightness: "OK  brightness → {pct}%",
+  okDpi: "OK  dpi → {x}",
+  okPoll: "OK  polling → {hz} Hz",
+  dpiRange: "DPI must be 100–30000.",
+  preset_red: "red", preset_green: "green", preset_blue: "blue", preset_white: "white",
+  preset_yellow: "yellow", preset_cyan: "cyan", preset_magenta: "magenta", preset_orange: "orange",
+};
 function t(key, vars) {
-  const en = window.I18N.en, d = window.I18N[currentLang] || en;
-  let s = d[key] != null ? d[key] : (en[key] != null ? en[key] : key);
+  const tr = window.I18N && window.I18N.tr;
+  let s = (currentLang === "tr" && tr && tr[key] != null) ? tr[key] : (EN[key] != null ? EN[key] : key);
   if (vars) for (const k in vars) s = s.split(`{${k}}`).join(vars[k]);
   return s;
 }
+
+// capture the HTML's original English once, so switching back to EN restores it
+const origText = new Map(), origHtml = new Map(), origTitle = new Map();
+function captureDefaults() {
+  document.querySelectorAll("[data-i18n]").forEach((el) => origText.set(el, el.textContent));
+  document.querySelectorAll("[data-i18n-html]").forEach((el) => origHtml.set(el, el.innerHTML));
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => origTitle.set(el, el.title));
+}
 function applyI18n(lang) {
-  currentLang = (window.I18N && window.I18N[lang]) ? lang : "en";
-  const dict = window.I18N[currentLang];
+  currentLang = lang === "tr" ? "tr" : "en";
+  const tr = (currentLang === "tr" && window.I18N && window.I18N.tr) || null;
   document.documentElement.lang = currentLang;
-  document.querySelectorAll("[data-i18n]").forEach((el) => { const v = dict[el.dataset.i18n]; if (v != null) el.textContent = v; });
-  document.querySelectorAll("[data-i18n-html]").forEach((el) => { const v = dict[el.dataset.i18nHtml]; if (v != null) el.innerHTML = v; });
-  document.querySelectorAll("[data-i18n-title]").forEach((el) => { const v = dict[el.dataset.i18nTitle]; if (v != null) el.title = v; });
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    const v = tr && tr[el.dataset.i18n]; el.textContent = v != null ? v : origText.get(el);
+  });
+  document.querySelectorAll("[data-i18n-html]").forEach((el) => {
+    const v = tr && tr[el.dataset.i18nHtml]; el.innerHTML = v != null ? v : origHtml.get(el);
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    const v = tr && tr[el.dataset.i18nTitle]; el.title = v != null ? v : origTitle.get(el);
+  });
   buildColorGrid();                                          // preset labels are language-dependent
   if (!devicesByPid.size) $("deviceSelect").innerHTML = `<option>${t("noDevices")}</option>`;
 }
@@ -373,8 +406,11 @@ function wireSponsor() {
 function init() {
   wireSponsor();    // independent of WebHID support
 
-  // language (en/tr): stored choice, else browser default
-  const lang = store.lang || (navigator.language && navigator.language.toLowerCase().startsWith("tr") ? "tr" : "en");
+  // language: remembered choice, else auto-detect from the browser
+  captureDefaults();                                  // snapshot the HTML's English first
+  const langs = navigator.languages || [navigator.language || ""];
+  const isTr = langs.some((l) => l && l.toLowerCase().startsWith("tr"));
+  const lang = store.lang || (isTr ? "tr" : "en");
   $("langSelect").value = lang;
   $("langSelect").addEventListener("change", (e) => { store.lang = e.target.value; persist(); applyI18n(e.target.value); });
   applyI18n(lang);
