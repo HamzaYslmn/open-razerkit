@@ -1,6 +1,6 @@
-// GENERATED from src/drivers/*.py -- do not hand-edit. Classic script (works over file://).
+// GENERATED from src/drivers/*.py -- do not hand-edit.
 // pid -> [name, category, method, txn, led]
-const DEVICES = {
+export const DEVICES = {
   0x0068: ["Razer Firefly Hyperflux", "accessory", "ext_static", 0x3f, 0x00],
   0x007e: ["Razer Mouse Dock", "accessory", "ext_static", 0x3f, 0x00],
   0x00a4: ["Razer Mouse Dock Pro", "accessory", "ext_static", 0xff, 0x00],
@@ -270,9 +270,9 @@ const DEVICES = {
   0x00d7: ["Razer Basilisk V3 Pro 35K Phantom Green Edition (Wireless)", "mouse", "ext_static", 0x1f, 0x00],
 };
 
-const DEFAULT_PID = 0x008a; // Razer Viper Mini
+export const DEFAULT_PID = 0x008a; // Razer Viper Mini
 
-function getDevice(pid) {
+export function getDevice(pid) {
   const d = DEVICES[pid];
   return d ? { pid, name: d[0], category: d[1], method: d[2], txn: d[3], led: d[4] } : null;
 }

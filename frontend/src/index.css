@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, sans-serif;
+  --shadow-glow: 0 0 24px -4px rgba(16, 185, 129, .5);
+}
+
+body {
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(16, 185, 129, .12), transparent 60%),
+    radial-gradient(900px 500px at 100% 100%, rgba(16, 185, 129, .06), transparent 55%),
+    #0a0a0a;
+}
+
+.swatch { transition: transform .1s ease; }
+.swatch:hover { transform: translateY(-2px); }
+.swatch:active { transform: translateY(0); }
+.fx { transition: background .12s, border-color .12s, color .12s, transform .1s; }
+.fx:hover { transform: translateY(-1px); }
+.fx:disabled { transform: none; }
+select, input[type=text], input[type=number] { transition: border-color .12s, box-shadow .12s; }
+
+#picker { -webkit-appearance: none; appearance: none; border: none; padding: 0; background: transparent; }
+#picker::-webkit-color-swatch-wrapper { padding: 0; }
+#picker::-webkit-color-swatch { border: none; border-radius: 10px; }
+
+input[type=range] { -webkit-appearance: none; appearance: none; height: 8px; border-radius: 9999px; outline: none; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; height: 18px; width: 18px;
+  border-radius: 9999px; background: #fafafa; border: 2px solid #0a0a0a; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, .5); }
+input[type=range]::-moz-range-thumb { height: 16px; width: 16px; border-radius: 9999px; background: #fafafa;
+  border: 2px solid #0a0a0a; cursor: pointer; }
+
+.pulse-dot { animation: pulse 2s infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, .6) } 70% { box-shadow: 0 0 0 7px rgba(16, 185, 129, 0) } 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0) } }
+
+.tip { position: relative; }
+.tip:hover .tip-body { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.tip-body { position: absolute; bottom: 130%; left: 50%; transform: translate(-50%, 4px); opacity: 0;
+  pointer-events: none; transition: .15s; width: 15rem; z-index: 40;
+  background: #18181b; border: 1px solid rgba(255, 255, 255, .1); border-radius: .5rem; padding: .55rem .7rem;
+  font-size: 11px; line-height: 1.4; color: #d4d4d8; box-shadow: 0 8px 24px rgba(0, 0, 0, .5); }
+
+#sponsor { animation: sponsorIn .28s ease-out; }
+@keyframes sponsorIn { from { opacity: 0; transform: translateY(-10px) scale(.97) } to { opacity: 1; transform: none } }
+
+.toast-in { animation: toastIn .3s ease-out; }
+@keyframes toastIn { from { opacity: 0; transform: translateX(12px) } to { opacity: 1; transform: none } }
+
+/* --- polish ------------------------------------------------------------- */
+/* Panels: a faint top sheen + a hairline light along the top edge for depth. */
+.panel { position: relative; background-image: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,0) 140px); }
+.panel::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 1px; border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.14), transparent); }
+
+/* Brand logo tile: soft emerald glow. */
+.logo-tile { box-shadow: 0 0 26px -6px rgba(16,185,129,.55); }
+
+/* Getting-started step cards: gentle lift + accent on hover. */
+.step { transition: transform .14s ease, border-color .14s, background .14s; }
+.step:hover { transform: translateY(-2px); border-color: rgba(16,185,129,.3); background: rgba(16,185,129,.04); }
+
+/* Effect buttons: add an emerald glow to the existing hover-lift. */
+.fx:hover { border-color: rgba(16,185,129,.5); box-shadow: 0 8px 24px -12px rgba(16,185,129,.55), inset 0 1px 0 rgba(255,255,255,.06); }
+
+/* Keycaps: real keycap feel — top sheen, inset highlight, soft drop shadow.
+   The LED color is set via inline background-color; this only layers a sheen. */
+.keycap { background-image: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,0) 42%, rgba(0,0,0,.30));
+  box-shadow: 0 1px 2px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.14); transition: filter .1s, transform .06s; }
+.keycap:hover { filter: brightness(1.18); }
+.keycap:active { transform: translateY(1px); }
+
+/* Section eyebrow: a small emerald bar before a step title. */
+.eyebrow { display: inline-flex; align-items: center; gap: .5rem; }
+.eyebrow::before { content: ""; width: 3px; height: 12px; border-radius: 2px;
+  background: linear-gradient(180deg, #34d399, #10b981); box-shadow: 0 0 8px rgba(16,185,129,.55); }

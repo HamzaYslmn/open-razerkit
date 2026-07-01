@@ -1,7 +1,5 @@
-// Türkçe metinler. Klasik script: window.I18N.tr tanımlar (file:// ile çalışır).
-window.I18N = window.I18N || {};
-window.I18N.tr = {
-  // --- sabit arayüz ---
+// Türkçe — tam çeviri.
+export const TR = {
   headerSub: "Razer cihazının rengini ve efektlerini doğrudan Chrome'dan ayarla. Uygulama yok, kurulum yok, arka planda çalışan bir şey yok.",
   step1: "Bağlan", step1d: "Bağlan'a tıkla, cihazını seç",
   step2: "Seç", step2d: "Renk, kaydırıcı veya efekt",
@@ -25,6 +23,7 @@ window.I18N.tr = {
   fxBreathing: "Nefes", fxBreathingSub: "yavaşça yan-sön", fxBreathingTip: "Geçerli rengi yavaşça açar ve kapatır. Siyah = rastgele renkler.",
   fxReactive: "Tepkisel", fxReactiveSub: "tuşa basınca", fxReactiveTip: "Her tuşa basışta/tıklamada geçerli renkte yanar, sonra söner. Çok bölgeli cihaz gerektirir.",
   fxWave: "Dalga", fxWaveSub: "çok bölgeli", fxWaveTip: "Bölgeler boyunca akan bir renk dalgası. Çok bölgeli cihaz gerektirir.",
+  fxStarlight: "Yıldız", fxStarlightSub: "parıltı", fxStarlightTip: "Rastgele tuşlar geçerli renkte parıldar. Çok bölgeli cihaz gerektirir.",
   fxOff: "Kapat", fxOffSub: "ışıklar kapalı", fxOffTip: "Aydınlatmayı kapatır (düz siyaha ayarlar).",
   perfTitle: "Performans — DPI & sorgulama (fareler)",
   perfHelp: "Farede saklanır. Yukarıda canlı okunur; buradan değiştir.",
@@ -35,21 +34,32 @@ window.I18N.tr = {
   ledLabel: "led (hex, boş = otomatik)",
   faqTitle: "Nasıl çalışır & SSS",
   faqQ1: "Bu nedir?",
-  faqA1: "<a href='https://github.com/HamzaYslmn/open-razer-py' class='text-emerald-400 hover:underline'>open-razer-py</a>'nin web sürümü. Razer cihazınla doğrudan USB üzerinden tarayıcının <b>WebHID</b> API'si ile konuşur ve Razer'ın kendi aydınlatma protokolünü — masaüstü aracın gönderdiği baytların aynısını — konuşur. Synapse yok, sürücü yok, hesap yok.",
+  faqA1: "<a href='https://github.com/HamzaYslmn/open-razerkit' class='text-emerald-400 hover:underline'>open-razerkit</a>'nin web sürümü. Razer cihazınla doğrudan USB üzerinden tarayıcının <b>WebHID</b> API'si ile konuşur ve Razer'ın kendi aydınlatma protokolünü — masaüstü aracın gönderdiği baytların aynısını — konuşur. Synapse yok, sürücü yok, hesap yok.",
   faqQ2: "Güvenli / gizli mi?",
   faqA2: "Evet. Her şey <b>kendi makinendeki tarayıcında</b> çalışır. Hiçbir şey yüklenmez; sunucu yoktur. Sayfa yalnızca senin açıkça seçtiğin tek cihaza, yalnızca sekme açıkken erişebilir.",
   faqQ3: "“Cihaza kaydet” ne yapar?",
   faqA3: "Razer cihazlarında küçük bir <b>dahili bellek</b> vardır. Kaydet açıkken rengin oraya yazılır; böylece kablo çıkarınca veya yeniden başlatınca — hiçbir şey çalışmadan — korunur. Son rengin ayrıca bu tarayıcıda hatırlanır.",
   faqQ4: "Rengim değişmedi / hata alıyorum",
-  faqA4: "İki yaygın neden: <b>Synapse veya başka bir RGB uygulaması açık</b> (kapat — kendi profilini sürekli yeniden uygular), ya da Chrome, kontrolü “korumalı” bir arayüzde olan bir cihazda WebHID'i engelliyor — bunlar için <a href='https://github.com/HamzaYslmn/open-razer-py' class='text-emerald-400 hover:underline'>komut satırı</a> aracı gerekir.",
+  faqA4: "İki yaygın neden: <b>Synapse veya başka bir RGB uygulaması açık</b> (kapat — kendi profilini sürekli yeniden uygular), ya da Chrome, kontrolü “korumalı” bir arayüzde olan bir cihazda WebHID'i engelliyor — bunlar için <a href='https://github.com/HamzaYslmn/open-razerkit' class='text-emerald-400 hover:underline'>komut satırı</a> aracı gerekir.",
   linkRepo: "GitHub deposu →", linkLive: "Canlı uygulama →", linkSponsor: "♥ Sponsor ol →",
-  sponsorTitle: "Razer RGB'yi beğendin mi?",
+  sponsorTitle: "RazerKit'i beğendin mi?",
   sponsorBody: "Ben Hamza, bu uygulamanın ve açık kaynaklı komut satırı aracının arkasındaki tek geliştiriciyim. Şu an işsizim ve sponsorluklar, bunun gibi ücretsiz araçları geliştirmeye ve sürdürmeye devam etmeme yardımcı oluyor. İşine yaradıysa, desteğin benim için çok değerli olur.",
   sponsorBtn: "GitHub'da sponsor ol",
-  // --- ön ayar renk etiketleri ---
   preset_red: "kırmızı", preset_green: "yeşil", preset_blue: "mavi", preset_white: "beyaz",
   preset_yellow: "sarı", preset_cyan: "camgöbeği", preset_magenta: "macenta", preset_orange: "turuncu",
-  // --- dinamik mesajlar ({...} app.js tarafından doldurulur) ---
+  keysTitle: "Tuş / bölge başına",
+  keysHelp: "Tek tek tuşları veya bölgeleri boya. Canlı uygulanır — hangi hücrenin hangi tuş olduğunu cihazdan gör.",
+  keysBase: "Taban renk", keysAccent: "Vurgu (boya)",
+  keysFill: "Hepsini doldur", keysApply: "Kareyi uygula", keysClear: "Sıfırla",
+  keysViewKeyboard: "⌨ Klavye", keysViewGrid: "▦ Izgara",
+  keysNoMatrix: "Bu cihazda tuş matrisi yok; bölgeleri veya düz bir renk kullan.",
+  zonesTitle: "Bölgeler",
+  featTitle: "Cihaz denetimleri",
+  featHelp: "Cihazda saklanır. Her denetim, onu destekleyen cihaz türü için gösterilir.",
+  scrollLabel: "Kaydırma tekeri",
+  scrollFree: "Serbest", scrollTactile: "Kademeli",
+  accelLabel: "Kaydırma ivmesi", smartReelLabel: "Akıllı sarım",
+  gameModeLabel: "Oyun modu", macroModeLabel: "Makro modu",
   connectFirst: "Önce bir cihaz bağla.",
   noDeviceSelected: "Cihaz seçilmedi.",
   connected: "Bağlandı: {name}",
@@ -60,5 +70,8 @@ window.I18N.tr = {
   okBrightness: "TAMAM  parlaklık → %{pct}",
   okDpi: "TAMAM  dpi → {x}",
   okPoll: "TAMAM  sorgulama → {hz} Hz",
+  okFrame: "TAMAM  özel kare → {n} tuş",
+  okZone: "TAMAM  {zone} → {hex}",
+  okSet: "TAMAM  {what} → {val}",
   dpiRange: "DPI 100–30000 arasında olmalı.",
 };
