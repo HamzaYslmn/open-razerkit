@@ -3,7 +3,7 @@
 import drivers
 import transport
 
-ANIMATIONS = ("spectrum", "breathing", "wave", "reactive")
+ANIMATIONS = ("spectrum", "breathing", "wave", "reactive", "starlight")
 
 
 def parse_color(s):
@@ -230,8 +230,10 @@ def set_dpi(pid, x, y=None, txn=None):
 
 
 def set_poll(pid, hz, txn=None):
-    """Set polling rate (1000/500/125 Hz). Returns the device label."""
+    """Set polling rate. 1000/500/125 use the v1 report; 8000/4000/2000/250
+    use HyperPolling (v2). Returns the device label."""
     _, _t, _l, label = _meta(pid, txn=txn)
-    drivers.protocol.set_poll(hz, 0)               # validate hz early (raises ValueError)
-    _multi_txn(pid, label, lambda t: drivers.protocol.set_poll(hz, t), txn)
+    build = drivers.protocol.set_poll if int(hz) in (1000, 500, 125) else drivers.protocol.set_poll2
+    build(hz, 0)                                   # validate hz early (raises ValueError)
+    _multi_txn(pid, label, lambda t: build(hz, t), txn)
     return label

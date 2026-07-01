@@ -11,7 +11,7 @@ rgb, txn, led, store)` returns the report sequence for one lighting action; `sto
 ZERO_LED, SCROLL_WHEEL_LED, LOGO_LED, BACKLIGHT_LED = 0x00, 0x01, 0x04, 0x05
 VARSTORE, NOSTORE, ON, OFF = 0x01, 0x00, 0x01, 0x00
 
-ACTIONS = ("static", "off", "spectrum", "breathing", "wave", "reactive")
+ACTIONS = ("static", "off", "spectrum", "breathing", "wave", "reactive", "starlight")
 METHODS = ("ext_static", "std_static", "custom", "logo")
 
 WAVE_SPEED = 0x28          # ponytail: openrazer's default wave speed; lower = faster
@@ -75,6 +75,17 @@ def _ext_reactive(rgb, txn, led, sv, speed):
     return [razer_report(0x0F, 0x02, 0x09, a, txn)]
 
 
+def _ext_starlight(rgb, txn, led, sv, speed):
+    if rgb and any(rgb):
+        a = bytearray(9)
+        a[0], a[1], a[2], a[4], a[5] = sv, led, 0x07, speed, 0x01
+        a[6], a[7], a[8] = rgb
+        return [razer_report(0x0F, 0x02, 0x09, a, txn)]
+    a = bytearray(6)
+    a[0], a[1], a[2], a[4] = sv, led, 0x07, speed          # random starlight
+    return [razer_report(0x0F, 0x02, 0x06, a, txn)]
+
+
 # --- custom frame (the old Viper Mini static path; kept, unused) --------------
 def _custom_static(rgb, txn, led, sv):
     frame = bytearray(8)
@@ -121,6 +132,17 @@ def _std_reactive(rgb, txn, speed):
     a[0], a[1] = 0x02, speed                       # MATRIX_EFFECT_REACTIVE
     a[2], a[3], a[4] = rgb
     return [razer_report(0x03, 0x0A, 0x05, a, txn)]
+
+
+def _std_starlight(rgb, txn, speed):
+    a = bytearray(9)
+    a[0], a[2] = 0x19, speed                        # MATRIX_EFFECT_STARLIGHT
+    if rgb and any(rgb):
+        a[1] = 0x01
+        a[3], a[4], a[5] = rgb
+    else:
+        a[1] = 0x03                                 # random
+    return [razer_report(0x03, 0x0A, 0x09, a, txn)]
 
 
 # --- standard LED / logo (CLASSIC effects via set_led_effect) ----------------
@@ -184,7 +206,54 @@ def build(method, action, rgb, txn, led, store=True, *, rgb2=None, speed=0x02, d
             raise NotImplementedError("reactive needs a multi-zone device; this one has a single LED")
         return (_ext_reactive(rgb or (0, 0, 0), txn, led, sv, speed) if fam == "ext"
                 else _std_reactive(rgb or (0, 0, 0), txn, speed))
+    if action == "starlight":
+        if method in _SINGLE_LED:
+            raise NotImplementedError("starlight needs a multi-zone device; this one has a single LED")
+        speed = max(1, min(3, speed))
+        return (_ext_starlight(rgb, txn, led, sv, speed) if fam == "ext"
+                else _std_starlight(rgb, txn, speed))
     raise NotImplementedError(f"{action!r} not available for {method!r} devices")
+
+
+# --- custom per-key frame (extended 0x0F/0x03 or standard 0x03/0x0B) ----------
+def _ext_set_row(row, colors, txn):
+    a = bytearray(5 + len(colors) * 3)
+    a[2], a[3], a[4] = row, 0, len(colors) - 1
+    for i, (r, g, b) in enumerate(colors):
+        a[5 + i * 3], a[6 + i * 3], a[7 + i * 3] = r, g, b
+    return razer_report(0x0F, 0x03, 0x47, a, txn)
+
+
+def _std_set_row(row, colors, txn):
+    a = bytearray(4 + len(colors) * 3)
+    a[0], a[1], a[2], a[3] = 0xFF, row, 0, len(colors) - 1
+    for i, (r, g, b) in enumerate(colors):
+        a[4 + i * 3], a[5 + i * 3], a[6 + i * 3] = r, g, b
+    return razer_report(0x03, 0x0B, 0x46, a, txn)
+
+
+def build_custom_frame(method, rows, txn, led, store=True):
+    """Per-key image: one set-row report per row, then a 'custom' effect report.
+
+    rows = [(row_index, [(r, g, b), ...]), ...] with colors starting at column 0.
+    Raises NotImplementedError for single-LED (logo) devices.
+    """
+    if method not in METHODS:
+        raise NotImplementedError(f"lighting method {method!r} not implemented")
+    fam = _FAMILY[method]
+    sv = VARSTORE if store else NOSTORE
+    if fam == "logo":
+        raise NotImplementedError("custom frame needs a matrix device; this one has a single LED")
+    reports = []
+    if fam == "std":
+        for row, colors in rows:
+            reports.append(_std_set_row(row, colors, txn))
+        reports.append(razer_report(0x03, 0x0A, 0x02, bytes([0x05, sv]), txn))   # arm CUSTOMFRAME
+    else:
+        for row, colors in rows:
+            reports.append(_ext_set_row(row, colors, txn))
+        reports.append(razer_report(0x0F, 0x02, 0x06, bytes([sv, led, 0x08]), txn))  # arm custom 0x08
+    return reports
 
 
 # --- brightness --------------------------------------------------------------
@@ -222,3 +291,44 @@ def set_poll(hz, txn):
     if code is None:
         raise ValueError("polling rate must be 1000, 500, or 125")
     return [razer_report(0x00, 0x05, 0x01, bytes([code]), txn)]
+
+
+POLL_CODES2 = {8000: 0x01, 4000: 0x02, 2000: 0x04, 1000: 0x08, 500: 0x10, 250: 0x20, 125: 0x40}
+
+
+def set_poll2(hz, txn):
+    """HyperPolling set (up to 8000 Hz) via 0x00/0x40."""
+    code = POLL_CODES2.get(int(hz))
+    if code is None:
+        raise ValueError("polling rate must be 8000/4000/2000/1000/500/250/125")
+    return [razer_report(0x00, 0x40, 0x02, bytes([0x00, code]), txn)]
+
+
+def set_dpi_stages(stages, active, txn):
+    """DPI stages via 0x04/0x06. stages = [(x, y), ...] (<=5); active is 1-based."""
+    a = bytearray(3 + len(stages) * 7)
+    a[0], a[1], a[2] = VARSTORE, active, len(stages)
+    for i, (x, y) in enumerate(stages):
+        x = max(100, min(30000, int(x)))
+        y = max(100, min(30000, int(y)))
+        o = 3 + i * 7
+        a[o], a[o + 1], a[o + 2], a[o + 3], a[o + 4] = i + 1, x >> 8, x & 0xFF, y >> 8, y & 0xFF
+    return [razer_report(0x04, 0x06, 0x26, a, txn)]
+
+
+# --- scroll-wheel modes (mice) -----------------------------------------------
+def set_scroll_mode(mode, txn):  return [razer_report(0x02, 0x14, 0x02, bytes([VARSTORE, mode & 0xFF]), txn)]
+def set_scroll_accel(on, txn):   return [razer_report(0x02, 0x16, 0x02, bytes([VARSTORE, 0x01 if on else 0x00]), txn)]
+def set_smart_reel(on, txn):     return [razer_report(0x02, 0x17, 0x02, bytes([VARSTORE, 0x01 if on else 0x00]), txn)]
+
+
+# --- game / macro mode LED toggle (keyboards; driver forces txn 0xFF) --------
+GAME_LED, MACRO_LED = 0x08, 0x07
+
+
+def _set_led_state(led, on):
+    return [razer_report(0x03, 0x00, 0x03, bytes([VARSTORE, led, ON if on else OFF]), 0xFF)]
+
+
+def set_game_mode(on):  return _set_led_state(GAME_LED, on)
+def set_macro_mode(on): return _set_led_state(MACRO_LED, on)

@@ -42,7 +42,7 @@ def _print_info(pid):
 
 def main(argv=None):
     p = argparse.ArgumentParser(
-        description="Razer RGB -- set a color or effect (Windows/Linux, no deps). "
+        description="RazerKit -- set a color or effect (Windows/Linux, no deps). "
                     "No args opens the menu.")
     p.add_argument('action', nargs='?', help="color (red, ff0000) or effect (spectrum, breathing, wave, off)")
     p.add_argument('color', nargs='?', help="color for 'breathing'")
@@ -54,7 +54,7 @@ def main(argv=None):
                    help="apply settings.txt now, or (un)install the logon task")
     p.add_argument('--brightness', type=int, metavar='PCT', help="set brightness 0-100")
     p.add_argument('--dpi', type=_dpi_arg, metavar='N', help="set mouse DPI: N or X,Y")
-    p.add_argument('--poll', type=int, metavar='HZ', help="set polling rate: 1000, 500, or 125")
+    p.add_argument('--poll', type=int, metavar='HZ', help="set polling rate: 8000/4000/2000/1000/500/250/125")
     p.add_argument('--info', action='store_true', help="read battery/firmware/serial/DPI/Hz from the device")
     p.add_argument('--txn', type=lambda x: int(x, 16), help="advanced: override transaction id (hex)")
     p.add_argument('--led', type=lambda x: int(x, 16), help="advanced: override LED id (hex)")
@@ -196,4 +196,53 @@ def _selftest():
     assert (pr.q_firmware(0xFF)[6], pr.q_firmware(0xFF)[7]) == (0x00, 0x81)
     assert pr.q_serial(0xFF)[5] == 0x16 and pr.q_battery(0xFF)[6] == 0x07
     assert (pr.q_dpi(0xFF)[6], pr.q_dpi(0xFF)[7]) == (0x04, 0x85)
+    # starlight (ext 0x0F/0x02 effect 0x07; std 0x03/0x0A mode 0x19)
+    stl = b('ext_static', 'starlight', (7, 8, 9), 0x1F, 0x05, speed=2)[0]
+    assert (stl[6], stl[7]) == (0x0F, 0x02) and stl[10] == 0x07 and stl[12] == 2
+    assert (stl[14], stl[15], stl[16]) == (7, 8, 9)
+    ssr = b('std_static', 'starlight', None, 0xFF, 0x00)[0]           # random on std matrix
+    assert (ssr[6], ssr[7]) == (0x03, 0x0A) and ssr[8] == 0x19 and ssr[9] == 0x03
+    try:
+        b('custom', 'starlight', (1, 1, 1), 0x3F, 0x04)               # single-LED can't starlight
+        assert False
+    except NotImplementedError:
+        pass
+    # custom per-key frame: N set-row reports + one arm report
+    rows = [(0, [(255, 0, 0), (0, 255, 0)]), (1, [(0, 0, 255)])]
+    cf = pr.build_custom_frame('ext_static', rows, 0x1F, 0x05, True)
+    assert len(cf) == 3 and (cf[0][6], cf[0][7]) == (0x0F, 0x03)      # 2 rows + arm; set-row cls/id
+    assert (cf[0][10], cf[0][11], cf[0][12]) == (0, 0, 1)             # row, start_col, stop_col
+    assert (cf[0][13], cf[0][14], cf[0][15]) == (255, 0, 0)           # first cell rgb @ arg5
+    assert (cf[2][6], cf[2][7], cf[2][10]) == (0x0F, 0x02, 0x08)      # arm custom effect 0x08
+    cfs = pr.build_custom_frame('std_static', rows, 0xFF, 0x00, False)
+    assert (cfs[0][6], cfs[0][7]) == (0x03, 0x0B) and cfs[0][8] == 0xFF   # std set-row (0x03/0x0B)
+    assert (cfs[-1][6], cfs[-1][7], cfs[-1][8], cfs[-1][9]) == (0x03, 0x0A, 0x05, 0x00)  # arm frame
+    try:
+        pr.build_custom_frame('logo', rows, 0xFF, 0x04, True)         # single-LED can't frame
+        assert False
+    except NotImplementedError:
+        pass
+    # HyperPolling (0x00/0x40), DPI stages (0x04/0x06), scroll modes, game/macro
+    p2 = pr.set_poll2(8000, 0x1F)[0]
+    assert (p2[6], p2[7]) == (0x00, 0x40) and p2[9] == 0x01
+    try:
+        pr.set_poll2(333, 0x1F)
+        assert False
+    except ValueError:
+        pass
+    ds = pr.set_dpi_stages([(400, 400), (1600, 900), (3200, 3200)], 2, 0x1F)[0]
+    assert (ds[6], ds[7]) == (0x04, 0x06) and (ds[8], ds[9], ds[10]) == (0x01, 2, 3)   # varstore, active, count
+    assert (ds[11], ds[12], ds[13], ds[14], ds[15]) == (1, 0x01, 0x90, 0x01, 0x90)     # stage1 = 400x400
+    assert (ds[18], ds[19], ds[20]) == (2, 0x06, 0x40)                                 # stage2 x = 1600
+    sm = pr.set_scroll_mode(1, 0x1F)[0]
+    assert (sm[6], sm[7], sm[8], sm[9]) == (0x02, 0x14, 0x01, 0x01)
+    assert pr.set_scroll_accel(True, 0x1F)[0][7] == 0x16 and pr.set_smart_reel(False, 0x1F)[0][9] == 0x00
+    gm = pr.set_game_mode(True)[0]
+    assert (gm[1], gm[6], gm[7]) == (0xFF, 0x03, 0x00) and (gm[8], gm[9], gm[10]) == (0x01, 0x08, 0x01)  # txn 0xFF, game LED on
+    assert pr.set_macro_mode(False)[0][9] == 0x07                                      # macro LED id
+    for rep in cf + cfs + [stl, ssr, p2, ds, sm, gm]:                 # every new report: valid CRC
+        c = 0
+        for i in range(2, 88):
+            c ^= rep[i]
+        assert rep[88] == c
     print(f"selftest ok ({len(drivers.all_devices())} devices in registry)")
