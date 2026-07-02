@@ -9,6 +9,7 @@ import MatrixPad from "./components/MatrixPad.jsx";
 import ZoneEditor from "./components/ZoneEditor.jsx";
 import DeviceControls from "./components/DeviceControls.jsx";
 import LaptopControls from "./components/LaptopControls.jsx";
+import ProfilesCard from "./components/ProfilesCard.jsx";
 import { VID, supported, listDevices, requestDevices, indexByPid, sendReports, readHz, readDpi, readInfo } from "./lib/hid.js";
 import { clamp, hex4, rgbToHex, QUICK, parseColor, describe } from "./lib/color.js";
 import { store, persist } from "./lib/store.js";
@@ -88,6 +89,41 @@ export default function App() {
   }
   const applyDebounced = (action, color) => { clearTimeout(applyTimer.current); applyTimer.current = setTimeout(() => applyAction(action, color), 500); };
   const applyNow = (action, color) => { clearTimeout(applyTimer.current); applyAction(action, color); };
+
+  // --- profiles: snapshot of per-device state; apply hits every connected device in it ---
+  const profileSnapshot = () => {
+    const snap = {};
+    for (const [key, ent] of Object.entries(store.perDevice)) {
+      if (ent && (Array.isArray(ent.rgb) || ent.action)) snap[key] = { rgb: ent.rgb, action: ent.action || "static" };
+    }
+    return Object.keys(snap).length ? snap : null;
+  };
+  async function applyProfile(name) {
+    const prof = (store.profiles || {})[name];
+    if (!prof) return;
+    let n = 0, firstErr = null;
+    for (const [key, ent] of Object.entries(prof)) {
+      const pid = parseInt(key, 16);
+      if (!live.current.devicesByPid.has(pid) || !ent) continue;
+      const d = getDevice(pid);
+      const method = d ? d.method : "custom", txn = d ? d.txn : 0x3f, led = d ? d.led : 0x00;
+      const action = ent.action || "static";
+      const color = Array.isArray(ent.rgb) ? ent.rgb.map(clamp) : null;
+      if (action === "static" && !color) continue;
+      try {
+        await sendReports(live.current.devicesByPid.get(pid), buildReports(method, action, color, txn, led, live.current.save));
+        store.perDevice[key] = { rgb: color ?? store.perDevice[key]?.rgb, action };
+        n++;
+      } catch (e) { firstErr = e; }
+    }
+    persist();
+    if (n) {
+      setStatus(t("okProfile", { name, n }), "ok"); toast(t("okProfile", { name, n }), "ok");
+      if (live.current.currentPid != null) reflect(live.current.currentPid);
+    } else {
+      toast(firstErr ? firstErr.message : t("profNoDev"), firstErr ? "err" : "warn");
+    }
+  }
 
   // --- color sync: fromText=true means the text inputs are the source (don't clobber them) ---
   function setColor(next, { fromText = false, apply = false } = {}) {
@@ -322,7 +358,7 @@ export default function App() {
   };
   const setSlider = (i, v) => { const next = rgb.slice(); next[i] = clamp(v); setColor(next, { apply: true }); };
 
-  const fxBtn = "fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-3 text-xs font-semibold";
+  const fxBtn = "fx rounded-md bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-emerald-500/50 px-2 py-2.5 text-xs font-semibold";
   const chan = [["R", "#ef4444"], ["G", "#22c55e"], ["B", "#3b82f6"]];
 
   return (
@@ -337,7 +373,7 @@ export default function App() {
       </div>
 
       {sponsor && (
-        <div id="sponsor" className="fixed top-4 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-pink-500/30 bg-neutral-900/95 p-4 pr-9 shadow-2xl shadow-pink-950/30">
+        <div id="sponsor" className="fixed top-4 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-white/10 bg-neutral-900/95 p-4 pr-9 shadow-2xl shadow-black/40">
           <button onClick={() => setSponsor(false)} aria-label="Close" className="absolute top-2.5 right-2.5 grid h-6 w-6 place-items-center rounded-md text-neutral-500 hover:bg-white/10 hover:text-neutral-200 transition">
             <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l8 8M14 6l-8 8" /></svg>
           </button>
@@ -358,11 +394,11 @@ export default function App() {
 
       <main className="mx-auto w-full max-w-4xl">
         <header className="mb-6 flex items-center gap-3">
-          <span className="logo-tile grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-black ring-1 ring-emerald-500/40">
+          <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-black ring-1 ring-white/10">
             <img src={logo} alt="RazerKit" className="h-full w-full object-cover" />
           </span>
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-black tracking-tight bg-gradient-to-r from-emerald-300 to-emerald-500 bg-clip-text text-transparent">RΛZΞR - Kit</h1>
+            <h1 className="text-xl font-bold tracking-tight text-neutral-100">RazerKit</h1>
             <p className="text-xs text-neutral-500">{t("headerSub")}</p>
           </div>
           <select value={lang} onChange={(e) => setLang(e.target.value)} aria-label="Language" className="shrink-0 rounded-lg bg-neutral-800/80 border border-neutral-700 px-2 py-1.5 text-xs font-semibold focus:border-emerald-500 focus:outline-none">
@@ -371,12 +407,13 @@ export default function App() {
           </select>
         </header>
 
-        <ol className="mb-6 grid grid-cols-3 gap-2.5 text-center">
+        <ol className="mb-6 grid grid-cols-3 gap-2.5">
           {[["step1", "step1d"], ["step2", "step2d"], ["step3", "step3d"]].map(([s, d], i) => (
-            <li key={s} className="step rounded-xl border border-white/5 bg-neutral-900/50 p-3">
-              <div className="mx-auto mb-1 grid h-6 w-6 place-items-center rounded-full bg-emerald-500/15 text-xs font-bold text-emerald-400 ring-1 ring-emerald-500/30">{i + 1}</div>
-              <p className="text-xs font-semibold">{t(s)}</p>
-              <p className="hidden text-[10px] text-neutral-500 sm:block">{t(d)}</p>
+            <li key={s} className="step rounded-lg border border-white/5 bg-neutral-900/50 px-3 py-2.5">
+              <p className="text-xs font-semibold text-neutral-200">
+                <span className="mr-1.5 font-mono text-emerald-500">{i + 1}.</span>{t(s)}
+              </p>
+              <p className="hidden text-[11px] text-neutral-500 sm:block">{t(d)}</p>
             </li>
           ))}
         </ol>
@@ -384,7 +421,7 @@ export default function App() {
         {!HID && <div {...html(t("unsupported"))} className="mb-6 rounded-xl border border-red-800/60 bg-red-950/40 p-4 text-sm text-red-300" />}
 
         <fieldset disabled={!HID} className="contents">
-        <div className="panel rounded-2xl border border-white/5 bg-neutral-900/85 p-5 sm:p-6 shadow-2xl shadow-emerald-950/30">
+        <div className="panel rounded-xl border border-white/5 bg-neutral-900/85 p-5 sm:p-6 shadow-lg shadow-black/20">
           <div className="grid gap-7 lg:grid-cols-[1.55fr_1fr] lg:gap-8">
 
             {/* LEFT: device + color */}
@@ -481,7 +518,7 @@ export default function App() {
                     const dark = name === "white" || name === "yellow";
                     return (
                       <button key={name} onClick={() => { setColor(c); applyNow("static", c); }}
-                              className={"swatch rounded-xl px-2 py-3.5 text-xs font-bold capitalize ring-1 ring-inset ring-black/20 shadow-md shadow-black/30 hover:ring-2 hover:ring-white/60 " + (dark ? "text-black/80" : "text-white drop-shadow")}
+                              className={"swatch rounded-md px-2 py-3 text-xs font-bold capitalize ring-1 ring-inset ring-black/20 shadow-sm shadow-black/30 hover:ring-2 hover:ring-white/50 " + (dark ? "text-black/80" : "text-white drop-shadow")}
                               style={{ background: `rgb(${c.join(",")})` }}>{t("preset_" + name)}</button>
                     );
                   })}
@@ -495,18 +532,17 @@ export default function App() {
                 <span className="eyebrow text-[11px] font-semibold uppercase tracking-wider text-neutral-400">{t("s3Title")}</span>
                 <p className="mt-1 mb-2.5 text-[11px] text-neutral-500">{t("effectsHelp")}</p>
                 <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-5 lg:grid-cols-2">
-                  <button onClick={() => applyNow("spectrum", null)} title={t("fxSpectrumTip")} className={fxBtn}>
-                    <span className="block text-base leading-none mb-1">🌈</span><span>{t("fxSpectrum")}</span><span className="block text-[9px] font-normal text-neutral-500">{t("fxSpectrumSub")}</span></button>
-                  <button onClick={() => applyNow("breathing", rgb)} title={t("fxBreathingTip")} className={fxBtn}>
-                    <span className="block text-base leading-none mb-1">🫧</span><span>{t("fxBreathing")}</span><span className="block text-[9px] font-normal text-neutral-500">{t("fxBreathingSub")}</span></button>
-                  <button onClick={() => applyNow("reactive", rgb)} disabled={!multi} title={t("fxReactiveTip")} className={fxBtn + (multi ? "" : " opacity-30 cursor-not-allowed")}>
-                    <span className="block text-base leading-none mb-1">⚡</span><span>{t("fxReactive")}</span><span className="block text-[9px] font-normal text-neutral-500">{t("fxReactiveSub")}</span></button>
-                  <button onClick={() => applyNow("wave", null)} disabled={!multi} title={t("fxWaveTip")} className={fxBtn + (multi ? "" : " opacity-30 cursor-not-allowed")}>
-                    <span className="block text-base leading-none mb-1">🌊</span><span>{t("fxWave")}</span><span className="block text-[9px] font-normal text-neutral-500">{t("fxWaveSub")}</span></button>
-                  <button onClick={() => applyNow("starlight", rgb)} disabled={!multi} title={t("fxStarlightTip")} className={fxBtn + (multi ? "" : " opacity-30 cursor-not-allowed")}>
-                    <span className="block text-base leading-none mb-1">✨</span><span>{t("fxStarlight")}</span><span className="block text-[9px] font-normal text-neutral-500">{t("fxStarlightSub")}</span></button>
-                  <button onClick={() => applyNow("static", [0, 0, 0])} title={t("fxOffTip")} className="fx rounded-lg bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-red-500/40 px-2 py-3 text-xs font-semibold">
-                    <span className="block text-base leading-none mb-1">⏻</span><span>{t("fxOff")}</span><span className="block text-[9px] font-normal text-neutral-500">{t("fxOffSub")}</span></button>
+                  {[["spectrum", null, "fxSpectrum", true], ["breathing", rgb, "fxBreathing", true],
+                    ["reactive", rgb, "fxReactive", multi], ["wave", null, "fxWave", multi],
+                    ["starlight", rgb, "fxStarlight", multi]].map(([act, col, key, on]) => (
+                    <button key={key} onClick={() => applyNow(act, col)} disabled={!on} title={t(key + "Tip")}
+                            className={fxBtn + (on ? "" : " opacity-30 cursor-not-allowed")}>
+                      <span>{t(key)}</span><span className="block text-[10px] font-normal text-neutral-500">{t(key + "Sub")}</span>
+                    </button>
+                  ))}
+                  <button onClick={() => applyNow("static", [0, 0, 0])} title={t("fxOffTip")} className="fx rounded-md bg-neutral-800/60 hover:bg-neutral-700/80 border border-neutral-700 hover:border-red-500/40 px-2 py-2.5 text-xs font-semibold">
+                    <span>{t("fxOff")}</span><span className="block text-[10px] font-normal text-neutral-500">{t("fxOffSub")}</span>
+                  </button>
                 </div>
               </section>
 
@@ -575,7 +611,7 @@ export default function App() {
         </div>
 
         {showKb && matrix && (
-          <details onToggle={(e) => setKbOpen(e.currentTarget.open)} className="panel mt-5 rounded-2xl border border-white/5 bg-neutral-900/85 p-5 sm:p-6 group">
+          <details onToggle={(e) => setKbOpen(e.currentTarget.open)} className="panel mt-5 rounded-xl border border-white/5 bg-neutral-900/85 p-5 sm:p-6 group">
             <summary className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 select-none">
               <svg className="h-3.5 w-3.5 text-emerald-400 transition group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7.5 5.5 12 10l-4.5 4.5" /></svg>
               <span>{t("kbTitle")}</span>
@@ -585,7 +621,7 @@ export default function App() {
           </details>
         )}
         {showMouse && (zones || mouseGrid) && (
-          <details onToggle={(e) => setMouseOpen(e.currentTarget.open)} className="panel mt-5 rounded-2xl border border-white/5 bg-neutral-900/85 p-5 sm:p-6 group">
+          <details onToggle={(e) => setMouseOpen(e.currentTarget.open)} className="panel mt-5 rounded-xl border border-white/5 bg-neutral-900/85 p-5 sm:p-6 group">
             <summary className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 select-none">
               <svg className="h-3.5 w-3.5 text-emerald-400 transition group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7.5 5.5 12 10l-4.5 4.5" /></svg>
               <span>{t("mouseTitle")}</span>
@@ -596,7 +632,7 @@ export default function App() {
           </details>
         )}
         {isBlade && (
-          <details className="panel mt-5 rounded-2xl border border-white/5 bg-neutral-900/85 p-5 sm:p-6 group">
+          <details className="panel mt-5 rounded-xl border border-white/5 bg-neutral-900/85 p-5 sm:p-6 group">
             <summary className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 select-none">
               <svg className="h-3.5 w-3.5 text-emerald-400 transition group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7.5 5.5 12 10l-4.5 4.5" /></svg>
               <span>{t("bladeTitle")}</span>
@@ -605,6 +641,15 @@ export default function App() {
             <LaptopControls verified={bladeVerified} onPerf={onBladePerf} onCharge={onBladeCharge} />
           </details>
         )}
+        <details open className="panel mt-5 rounded-xl border border-white/5 bg-neutral-900/85 p-5 sm:p-6 group">
+          <summary className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 select-none">
+            <svg className="h-3.5 w-3.5 text-emerald-400 transition group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M7.5 5.5 12 10l-4.5 4.5" /></svg>
+            <span>{t("profTitle")}</span>
+          </summary>
+          <div className="mt-3">
+            <ProfilesCard onApply={applyProfile} getSnapshot={profileSnapshot} toast={toast} />
+          </div>
+        </details>
         </fieldset>
 
         <details className="panel mt-5 rounded-2xl border border-white/5 bg-neutral-900/50 p-5 text-sm group">

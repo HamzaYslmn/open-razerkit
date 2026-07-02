@@ -66,7 +66,34 @@ uv run python src/main.py --poll 1000         # polling: 8000/4000/2000/1000/500
 uv run python src/main.py --info              # read battery, firmware, serial, DPI, Hz
 ```
 
-The **browser app** additionally has a **per-key keyboard editor** and a **per-zone mouse editor** (logo, scroll wheel, side strips, underglow), plus scroll-wheel modes and game/macro toggles.
+The **browser app** additionally has a **per-key keyboard editor** and a **per-zone mouse editor** (logo, scroll wheel, side strips, underglow), plus scroll-wheel modes, game/macro toggles, and **named profiles** (saved in the browser).
+
+## 🗂 Profiles & game detection
+
+Save the lighting of all your devices under a name, then bring it back with one command — and have a profile apply automatically **when a game starts** (reverting to `default` when it exits):
+
+```bash
+uv run python src/main.py red                      # set things up how you like them...
+uv run python src/main.py --profile save default   # ...and snapshot that as the fallback
+uv run python src/main.py 00ff88 && uv run python src/main.py --profile save fps
+uv run python src/main.py --profile load fps       # apply a profile (list / delete too)
+
+uv run python src/main.py --game add cs2.exe fps   # while CS2 is in the foreground -> [fps]
+uv run python src/main.py --watch                  # watch & auto-switch (ctrl-c to stop)
+```
+
+Profiles live in `docs/profiles.txt` and the game map in `docs/games.txt` — both plain, editable text. If any game mappings exist, the **startup launcher keeps watching after logon**, so game detection works with zero extra setup (`--startup install`). Detection is the *foreground app* on Windows (UWP/Store games included) and a process scan on Linux (Wine/Proton titles are matched best-effort by their `.exe` name).
+
+## 🎧 Headset EQ (BlackShark V2 Pro)
+
+Some wireless Razer headsets keep their **equalizer in the headset's own DSP**, set over a vendor HID interface — so RazerKit can set it with no Synapse and no audio driver:
+
+```bash
+uv run python src/main.py -d 0555 --eq game               # flat | game | music | movie
+uv run python src/main.py -d 0555 --eq 0,0,-2,0,3,3,2,1,0,0   # 10 custom band gains
+```
+
+Verified protocol for the **BlackShark V2 Pro (1532:0555)** only; other headsets either use a host-side DSP in Synapse (nothing on-device to set) or an uncaptured protocol — `--force` lets you try anyway. Wired Kraken-family EQ ("THX Spatial") is host software, not the headset, so no tool can set it device-side.
 
 ## 💻 Razer Blade laptop (performance & battery)
 
@@ -78,7 +105,13 @@ uv run python src/main.py --charge 80      # cap charging at 50-95%  (--charge o
 uv run python src/main.py --info           # also shows perf mode / fan rpm / charge limit on a Blade
 ```
 
-**GPU MUX / Optimus switching is _not_ possible here** — it isn't a HID command (it's the NVIDIA driver / vendor ACPI), so no HID tool, CLI *or* browser, can do it.
+**GPU MUX / Optimus switching is _not_ possible from any userland tool** — on 2023+ Blades (Advanced Optimus) the switch lives in **NVIDIA Control Panel → Manage Display Mode** (NVIDIA has declined to expose an API; Razer removed it from Synapse on these models on purpose), and on older Blades it's a firmware setting + reboot. What RazerKit *can* do is power the dGPU off/on at the device level ("Eco", the same approach ASUS G-Helper uses) — saves battery when you're on iGPU-only work:
+
+```bash
+uv run python src/main.py --gpu status    # list iGPU/dGPU and their state (+ MUX guidance)
+uv run python src/main.py --gpu eco       # power the NVIDIA dGPU off (admin, Windows)
+uv run python src/main.py --gpu on        # bring it back
+```
 
 ## 🌐 Browser app (no install)
 

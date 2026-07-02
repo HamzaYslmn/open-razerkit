@@ -361,3 +361,57 @@ def blade_charge(percent):
 def q_blade_fan(zone):  return razer_report(0x0D, 0x88, 0x04, bytes([0x00, zone & 0xFF]), BLADE_TXN)  # resp arg2 * 100
 def q_blade_perf():     return razer_report(0x0D, 0x82, 0x04, bytes([0x00, 0x01]), BLADE_TXN)          # resp arg2 (0/1/2)
 def q_blade_charge():   return razer_report(0x07, 0x8F, 0x01, bytes([0x00]), BLADE_TXN)                # resp arg0
+
+
+# --- headset on-device EQ: BlackShark V2 Pro (1532:0555) ----------------------
+# A DIFFERENT frame from the 90-byte razer report: 64-byte "PA" packets written
+# as raw HID output reports to the vendor (0xFF00) collection. No CRC.
+# Layout: [0]=0x02 report type  [1]=0x80 host->device  [2]=total_len
+#         [5:7]='PA' magic  [7]=inner_len  [9]=cmd_class  [10]=cmd_id  [11:]=params
+# Verified only on the BlackShark V2 Pro (see EQ_VERIFIED in core).
+EQ_PRESETS = {
+    'flat':  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    'game':  [-3, -3, -4, 0, 5, 5, 4, 1, 0, -1],
+    'music': [2, 2, 1, 1, 2, 3, 3, 3, 1, 0],
+    'movie': [4, 4, 3, 0, -3, -1, 3, 5, 2, 1],
+}
+
+
+def _pa_packet(total, inner, cls, cid, params):
+    b = bytearray(64)
+    b[0], b[1], b[2] = 0x02, 0x80, total
+    b[5:7] = b'PA'
+    b[7] = inner
+    b[9], b[10] = cls, cid
+    b[11:11 + len(params)] = bytes(p & 0xFF for p in params)
+    return bytes(b)
+
+
+def eq_remote_mode(on):
+    """Must precede most audio commands (Synapse toggles it around each batch)."""
+    return _pa_packet(0x07, 0x0E, 0x02, 0xE1, [1 if on else 0])
+
+
+def eq_config():
+    """DSP pipeline config -- constant blob captured from Synapse."""
+    return _pa_packet(0x0B, 0x08, 0x06, 0x01, [0xC2, 0x03, 0xF8, 0x5F, 0x04])
+
+
+def eq_preset_enable(on):
+    """On = use the on-device preset slot; off = take the custom band gains."""
+    return _pa_packet(0x09, 0x08, 0x04, 0x9E, [0x00, 1 if on else 0])
+
+
+def eq_bands_report(bands):
+    """10 band gains, signed dB steps (approx. -5..+5 used by Synapse presets)."""
+    if len(bands) != 10 or any(not -12 <= int(b) <= 12 for b in bands):
+        raise ValueError("EQ needs exactly 10 band gains, each -12..12")
+    return _pa_packet(0x12, 0x08, 0x0D, 0x95, [0x00, 0x0A] + [int(b) for b in bands])
+
+
+def build_eq_sequence(bands):
+    """The apply sequence Synapse sends (minus volume/enhancement -- we don't
+    touch those). Caller spaces packets ~35ms apart and re-sends the bands once
+    after ~300ms, which is what makes the setting stick."""
+    return [eq_remote_mode(False), eq_config(), eq_remote_mode(True),
+            eq_preset_enable(False), eq_remote_mode(True), eq_bands_report(bands)]

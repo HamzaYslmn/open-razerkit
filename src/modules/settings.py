@@ -36,13 +36,33 @@ def path():
     return _docs('settings.txt')
 
 
-def load():
-    """[(pid, action, rgb_or_None)] from settings.txt; [] if missing/empty.
+def parse_row(s):
+    """(pid, action, rgb_or_None) from one table row, or None if it isn't one.
 
     Accepts the aligned 'name | pid | action | color' table and the older
     whitespace 'pid action color' form. The name column is informational.
     """
     from modules.core import parse_color
+    fields = [x.strip() for x in s.split('|')] if '|' in s else s.split()
+    pidtok = fields[1] if '|' in s else fields[0]   # name|pid|...  vs  pid ...
+    rest = fields[2:] if '|' in s else fields[1:]
+    try:
+        pid = int(pidtok, 16)
+    except (ValueError, IndexError):
+        return None
+    action = rest[0] if rest and rest[0] else 'static'
+    coltok = rest[1] if len(rest) > 1 else '-'
+    rgb = None
+    if coltok and coltok != '-':
+        try:
+            rgb = parse_color(coltok)
+        except ValueError:
+            rgb = None
+    return (pid, action, rgb)
+
+
+def load():
+    """[(pid, action, rgb_or_None)] from settings.txt; [] if missing/empty."""
     p = path()
     if not os.path.exists(p):
         return []
@@ -52,22 +72,9 @@ def load():
             s = line.strip()
             if not s or s.startswith('#'):
                 continue
-            fields = [x.strip() for x in s.split('|')] if '|' in s else s.split()
-            pidtok = fields[1] if '|' in s else fields[0]   # name|pid|...  vs  pid ...
-            rest = fields[2:] if '|' in s else fields[1:]
-            try:
-                pid = int(pidtok, 16)
-            except ValueError:
-                continue
-            action = rest[0] if rest and rest[0] else 'static'
-            coltok = rest[1] if len(rest) > 1 else '-'
-            rgb = None
-            if coltok and coltok != '-':
-                try:
-                    rgb = parse_color(coltok)
-                except ValueError:
-                    rgb = None
-            out.append((pid, action, rgb))
+            r = parse_row(s)
+            if r:
+                out.append(r)
     return out
 
 
@@ -76,19 +83,164 @@ def _name(pid):
     return d.name if d else f"Unknown 1532:{pid:04x}"
 
 
-def save(pid, action, rgb):
-    """Record/replace this device's setting in settings.txt as an aligned table."""
-    rows = {p: (a, c) for p, a, c in load()}
-    rows[pid] = (action, rgb)
+def _table_lines(rows):
+    """Aligned 'device | pid | action | color' lines from {pid: (action, rgb)}."""
     namew = max([6] + [len(_name(p)) for p in rows])
     actw = max([6] + [len(a) for a, _ in rows.values()])
-    lines = [_HEADER]
+    lines = []
     for p in sorted(rows):
         a, c = rows[p]
         col = f"{c[0]:02x}{c[1]:02x}{c[2]:02x}" if (c and a in ('static', 'breathing')) else "-"
         lines.append(f"{_name(p):<{namew}} | {p:04x} | {a:<{actw}} | {col}\n")
+    return lines
+
+
+def save(pid, action, rgb):
+    """Record/replace this device's setting in settings.txt as an aligned table."""
+    rows = {p: (a, c) for p, a, c in load()}
+    rows[pid] = (action, rgb)
     with open(path(), 'w', encoding='utf-8') as f:
+        f.write("".join([_HEADER] + _table_lines(rows)))
+
+
+# --- named profiles (profiles.txt) -------------------------------------------
+# [name] sections holding the same rows as settings.txt. "default" is what the
+# game watcher reverts to when no mapped game is running.
+_PHEADER = (
+    "# RazerKit profiles -- load with:  python src/main.py --profile load <name>\n"
+    "# sections: [name]; rows like settings.txt:  device | pid | action | color\n"
+)
+
+
+def profiles_path():
+    return _docs('profiles.txt')
+
+
+def _norm_name(name):
+    n = (name or "").strip().lower()
+    if not n or any(c in n for c in '[]|'):
+        raise SystemExit(f"bad profile name {name!r} (no [ ] | characters)")
+    return n
+
+
+def load_profiles():
+    """{name: {pid: (action, rgb)}} from profiles.txt; {} if missing."""
+    p = profiles_path()
+    out = {}
+    if not os.path.exists(p):
+        return out
+    cur = None
+    with open(p, encoding='utf-8') as f:
+        for line in f:
+            s = line.strip()
+            if not s or s.startswith('#'):
+                continue
+            if s.startswith('[') and s.endswith(']'):
+                cur = s[1:-1].strip().lower()
+                out.setdefault(cur, {})
+                continue
+            r = parse_row(s)
+            if r and cur is not None:
+                out[cur][r[0]] = (r[1], r[2])
+    return out
+
+
+def _write_profiles(profs):
+    lines = [_PHEADER]
+    for name in sorted(profs):
+        lines.append(f"\n[{name}]\n")
+        lines += _table_lines(profs[name])
+    with open(profiles_path(), 'w', encoding='utf-8') as f:
         f.write("".join(lines))
+
+
+def save_profile(name):
+    """Snapshot the current settings.txt rows as profile `name`."""
+    name = _norm_name(name)
+    rows = {p: (a, c) for p, a, c in load()}
+    if not rows:
+        raise SystemExit("nothing to snapshot -- set a color first, then --profile save")
+    profs = load_profiles()
+    profs[name] = rows
+    _write_profiles(profs)
+    return name
+
+
+def delete_profile(name):
+    name = _norm_name(name)
+    profs = load_profiles()
+    if name not in profs:
+        raise SystemExit(f"no profile {name!r} (have: {', '.join(sorted(profs)) or 'none'})")
+    del profs[name]
+    _write_profiles(profs)
+
+
+def profile_rows(name):
+    """[(pid, action, rgb)] for a profile; raises if unknown."""
+    name = _norm_name(name)
+    profs = load_profiles()
+    if name not in profs:
+        raise SystemExit(f"no profile {name!r} (have: {', '.join(sorted(profs)) or 'none'})")
+    return [(p, a, c) for p, (a, c) in sorted(profs[name].items())]
+
+
+def default_rows():
+    """What the watcher reverts to: the 'default' profile if saved, else settings.txt."""
+    profs = load_profiles()
+    if 'default' in profs:
+        return [(p, a, c) for p, (a, c) in sorted(profs['default'].items())]
+    return load()
+
+
+# --- game -> profile mapping (games.txt) --------------------------------------
+_GHEADER = (
+    "# RazerKit game profiles -- while <exe> is running, its profile is applied.\n"
+    "# columns:  exe | profile      e.g.  cs2.exe | fps\n"
+)
+
+
+def games_path():
+    return _docs('games.txt')
+
+
+def load_games():
+    """{exe_lower: profile} from games.txt; {} if missing."""
+    p = games_path()
+    out = {}
+    if not os.path.exists(p):
+        return out
+    with open(p, encoding='utf-8') as f:
+        for line in f:
+            s = line.strip()
+            if not s or s.startswith('#') or '|' not in s:
+                continue
+            exe, _, prof = (x.strip() for x in s.partition('|'))
+            if exe and prof:
+                out[exe.lower()] = prof.lower()
+    return out
+
+
+def _write_games(games):
+    w = max([3] + [len(e) for e in games])
+    lines = [_GHEADER] + [f"{e:<{w}} | {games[e]}\n" for e in sorted(games)]
+    with open(games_path(), 'w', encoding='utf-8') as f:
+        f.write("".join(lines))
+
+
+def set_game(exe, profile):
+    profile = _norm_name(profile)
+    if profile not in load_profiles():
+        raise SystemExit(f"no profile {profile!r} -- save it first: --profile save {profile}")
+    games = load_games()
+    games[exe.strip().lower()] = profile
+    _write_games(games)
+
+
+def remove_game(exe):
+    games = load_games()
+    if games.pop(exe.strip().lower(), None) is None:
+        raise SystemExit(f"no game mapping for {exe!r}")
+    _write_games(games)
 
 
 # --- run at logon ------------------------------------------------------------

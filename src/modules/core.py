@@ -322,3 +322,47 @@ def set_charge(pid, spec, force=False):
             raise SystemExit("charge limit must be 50-95, or 'off'")
     _send(pid, name, _pr.blade_charge(pct))
     return name, ("off" if not pct else pct)
+
+
+# --- headset on-device EQ (BlackShark V2 Pro) ---------------------------------
+# 64-byte "PA" packets on the vendor collection -- see protocol.py. The DSP is
+# on the headset, so this works with no driver/APO; verified on 1532:0555 only.
+EQ_VERIFIED = frozenset({0x0555})
+
+
+def set_eq(pid, spec, force=False):
+    """Headset EQ: a preset name (flat/game/music/movie) or 10 comma gains -12..12.
+
+    Returns (label, bands).
+    """
+    import time
+    dev = drivers.get(pid)
+    name = dev.name if dev else f"unknown 1532:{pid:04x}"
+    if pid not in EQ_VERIFIED and not force:
+        raise SystemExit(f"on-device EQ is verified only on the BlackShark V2 Pro (1532:0555). "
+                         f"{name} is untested -- re-run with --force to try at your own risk.")
+    bands = _pr.EQ_PRESETS.get(str(spec).strip().lower())
+    if bands is None:
+        try:
+            bands = [int(x) for x in str(spec).split(',')]
+        except ValueError:
+            raise SystemExit(f"bad --eq {spec!r}: use {'/'.join(_pr.EQ_PRESETS)} or 10 comma gains, e.g. 0,0,-2,0,3,3,2,1,0,0")
+    try:
+        reports = _pr.build_eq_sequence(bands)
+    except ValueError as e:
+        raise SystemExit(f"bad --eq: {e}")
+    paths = transport.vendor_paths(pid)
+    if not paths:
+        raise SystemExit(f"{name}: no 1532:{pid:04x} device found (plugged in?)")
+    last = None
+    for path in paths:
+        try:
+            for rep in reports:
+                transport.write_output(path, rep)
+                time.sleep(0.035)               # Synapse paces packets ~35ms apart
+            time.sleep(0.3)
+            transport.write_output(path, _pr.eq_bands_report(bands))  # re-send makes it stick
+            return name, bands
+        except OSError as e:
+            last = e
+    raise SystemExit(f"{name}: every candidate interface rejected the EQ write (last: {last})")

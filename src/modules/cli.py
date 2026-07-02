@@ -7,7 +7,7 @@ import drivers
 from modules import settings
 from modules.core import (apply, blade_status, describe, read_status, resolve_action,
                           select_targets, set_brightness, set_charge, set_dpi,
-                          set_perf, set_poll)
+                          set_eq, set_perf, set_poll)
 from modules.menu import list_connected, menu
 
 
@@ -61,12 +61,21 @@ def main(argv=None):
     p.add_argument('--temp', action='store_true', help="apply once: don't save to memory or settings.txt")
     p.add_argument('--startup', choices=('apply', 'install', 'remove'),
                    help="apply settings.txt now, or (un)install the logon task")
+    p.add_argument('--profile', nargs='+', metavar='ARG',
+                   help="named profiles: save NAME | load NAME | list | delete NAME")
+    p.add_argument('--game', nargs='+', metavar='ARG',
+                   help="game mapping: add EXE PROFILE | remove EXE | list")
+    p.add_argument('--watch', action='store_true',
+                   help="watch running games and auto-switch profiles (see --game)")
     p.add_argument('--brightness', type=int, metavar='PCT', help="set brightness 0-100")
     p.add_argument('--dpi', type=_dpi_arg, metavar='N', help="set mouse DPI: N or X,Y")
     p.add_argument('--poll', type=int, metavar='HZ', help="set polling rate: 8000/4000/2000/1000/500/250/125")
     p.add_argument('--perf', choices=('balanced', 'gaming', 'creator'), help="Blade laptop: performance mode (sets the fan curve)")
     p.add_argument('--charge', metavar='PCT', help="Blade laptop: battery charge limit 50-95, or 'off'")
-    p.add_argument('--force', action='store_true', help="allow Blade fan/perf on an untested (non-02b7) model")
+    p.add_argument('--eq', metavar='SPEC', help="headset on-device EQ: flat/game/music/movie, or 10 comma gains -12..12 (BlackShark V2 Pro)")
+    p.add_argument('--gpu', choices=('status', 'eco', 'on'),
+                   help="laptop dGPU: status | eco = power the dGPU off (admin) | on. Not a display MUX -- see README")
+    p.add_argument('--force', action='store_true', help="allow Blade perf/charge or headset --eq on an untested model")
     p.add_argument('--info', action='store_true', help="read battery/firmware/serial/DPI/Hz from the device")
     p.add_argument('--txn', type=lambda x: int(x, 16), help="advanced: override transaction id (hex)")
     p.add_argument('--led', type=lambda x: int(x, 16), help="advanced: override LED id (hex)")
@@ -85,10 +94,20 @@ def main(argv=None):
             print(f"1532:{d.pid:04x}  {d.category:9} {d.method:10} txn=0x{d.txn:02x}  {d.name}")
         print(f"\n{len(drivers.all_devices())} devices")
         return
+    if args.profile:
+        return _profile_cmd(p, args.profile)
+    if args.game:
+        return _game_cmd(p, args.game)
+    if args.watch:
+        from modules.watcher import watch
+        return watch()
+    if args.gpu:
+        from modules import gpu
+        return gpu.main(args.gpu)
     if args.menu:
         return menu()
     ops = (args.brightness is not None or args.dpi or args.poll or args.info
-           or args.perf or args.charge is not None)
+           or args.perf or args.charge is not None or args.eq)
     if args.action is None and not ops:  # bare run: menu on a real terminal, list if piped
         return menu() if sys.stdin.isatty() and sys.stdout.isatty() else list_connected()
 
@@ -119,14 +138,72 @@ def main(argv=None):
             if args.charge is not None:
                 lbl, val = set_charge(pid, args.charge, force=args.force)
                 print(f"set {lbl} charge limit -> {val}{'' if val == 'off' else '%'}")
+            if args.eq:
+                lbl, bands = set_eq(pid, args.eq, force=args.force)
+                print(f"set {lbl} eq -> {','.join(str(b) for b in bands)}")
             if args.info:
                 _print_info(pid)
         except (SystemExit, ValueError) as e:   # one device failing shouldn't abort the rest
             print(e)
 
 
+def _profile_cmd(p, argv):
+    """--profile save NAME | load NAME | list | delete NAME"""
+    cmd, name = argv[0].lower(), (argv[1] if len(argv) > 1 else None)
+    if cmd == 'list':
+        profs = settings.load_profiles()
+        if not profs:
+            return print(f"no profiles yet -- snapshot one: --profile save <name>  ({settings.profiles_path()})")
+        for n in sorted(profs):
+            print(f"[{n}]" + ("  (watch default)" if n == 'default' else ""))
+            for pid, (action, rgb) in sorted(profs[n].items()):
+                print(f"  {pid:04x}  {describe(action, rgb)}")
+        return
+    if not name:
+        p.error(f"--profile {cmd} needs a NAME")
+    if cmd == 'save':
+        print(f"saved profile [{settings.save_profile(name)}] from current settings")
+    elif cmd == 'delete':
+        settings.delete_profile(name)
+        print(f"deleted profile [{name.lower()}]")
+    elif cmd == 'load':
+        for pid, action, rgb in settings.profile_rows(name):
+            try:
+                label, used = apply(pid, action, rgb)
+                settings.save(pid, action, rgb)          # loading makes it current
+                print(f"set {label} -> {describe(action, rgb)} (method={used})")
+            except SystemExit as e:
+                print(e)
+    else:
+        p.error("--profile: use save NAME | load NAME | list | delete NAME")
+
+
+def _game_cmd(p, argv):
+    """--game add EXE PROFILE | remove EXE | list"""
+    cmd = argv[0].lower()
+    if cmd == 'list':
+        games = settings.load_games()
+        if not games:
+            return print(f"no game mappings -- add one: --game add <exe> <profile>  ({settings.games_path()})")
+        for exe in sorted(games):
+            print(f"{exe}  ->  [{games[exe]}]")
+        return
+    if cmd == 'add' and len(argv) >= 3:
+        settings.set_game(argv[1], argv[2])
+        print(f"{argv[1].lower()}  ->  [{argv[2].lower()}]   (run --watch, or reinstall --startup install)")
+    elif cmd == 'remove' and len(argv) >= 2:
+        settings.remove_game(argv[1])
+        print(f"removed mapping for {argv[1].lower()}")
+    else:
+        p.error("--game: use add EXE PROFILE | remove EXE | list")
+
+
 def _apply_settings():
-    """Replay settings.txt onto each listed device. This is what the startup task runs."""
+    """Replay settings.txt onto each listed device. This is what the startup task runs.
+
+    If game mappings exist, stay resident and keep watching -- so the logon
+    launcher doubles as the game-profile watcher with no extra setup.
+    """
     rows = settings.load()
     if not rows:
         print(f"no settings to apply -- edit {settings.path()} or set a color first")
@@ -137,6 +214,9 @@ def _apply_settings():
             print(f"set {label} -> {describe(action, rgb)} (method={used})")
         except SystemExit as e:
             print(e)
+    if settings.load_games():
+        from modules.watcher import watch
+        watch()
 
 
 def _selftest():
@@ -270,6 +350,31 @@ def _selftest():
     assert (pr.q_blade_fan(1)[6], pr.q_blade_fan(1)[7]) == (0x0D, 0x88)
     assert (pr.q_blade_charge()[6], pr.q_blade_charge()[7]) == (0x07, 0x8F)
     assert drivers.get(0x02b7).name == 'Razer Blade 16 (2024)'        # verified model in registry
+    # headset EQ: 64-byte "PA" packets (a different frame -- no CRC)
+    pa = pr.eq_bands_report([-3, -3, -4, 0, 5, 5, 4, 1, 0, -1])
+    assert len(pa) == 64 and (pa[0], pa[1], pa[2]) == (0x02, 0x80, 0x12)
+    assert pa[5:7] == b'PA' and pa[7] == 0x08 and (pa[9], pa[10]) == (0x0D, 0x95)
+    assert (pa[11], pa[12]) == (0x00, 0x0A) and pa[13] == 0xFD and pa[17] == 0x05  # -3 as u8; band5=+5
+    seq = pr.build_eq_sequence(pr.EQ_PRESETS['game'])
+    assert len(seq) == 6 and all(len(r) == 64 for r in seq)
+    assert (seq[0][9], seq[0][10], seq[0][11]) == (0x02, 0xE1, 0x00)   # remote mode off first
+    assert (seq[1][9], seq[1][10]) == (0x06, 0x01)                      # dsp config
+    assert (seq[3][9], seq[3][10], seq[3][12]) == (0x04, 0x9E, 0x00)   # preset slot off -> custom bands
+    try:
+        pr.eq_bands_report([0] * 9)                                     # needs exactly 10 bands
+        assert False
+    except ValueError:
+        pass
+    assert drivers.get(0x0555).name == 'Razer BlackShark V2 Pro'
+    # profiles + game watcher (pure parts -- no files, no device)
+    assert settings.parse_row("Razer Viper Mini | 008a | static | ff1e00") == (0x8a, 'static', (255, 30, 0))
+    assert settings.parse_row("008a spectrum") == (0x8a, 'spectrum', None)
+    assert settings.parse_row("junk") is None
+    from modules.watcher import match
+    g = {'cs2.exe': 'fps', 'eldenring': 'rpg'}
+    assert match({'cs2.exe', 'steam.exe'}, g) == 'fps'
+    assert match({'eldenring.exe'}, g) == 'rpg'            # extension optional
+    assert match({'notepad.exe'}, g) is None
     for rep in cf + cfs + [stl, ssr, p2, ds, sm, gm] + bp + bc:       # every new report: valid CRC
         c = 0
         for i in range(2, 88):

@@ -157,6 +157,12 @@ def control_paths(pid):
     return [d[0] for d in devs if d[4] == CONTROL_FEATURE_LEN] or [d[0] for d in devs]
 
 
+def vendor_paths(pid):
+    """Collections on the vendor usage page (0xFF00) -- headset audio/EQ lives here."""
+    devs = find_devices(pid)
+    return [d[0] for d in devs if d[3] == 0xFF00] or [d[0] for d in devs]
+
+
 def set_feature(path, report):
     """HidD_SetFeature one 90-byte report (+ leading report-id byte) to a collection."""
     w = _winapi()
@@ -173,6 +179,29 @@ def set_feature(path, report):
         cbuf = (c.c_char * len(buf)).from_buffer(buf)
         if not w.hid.HidD_SetFeature(h, cbuf, len(buf)):
             raise OSError(f"HidD_SetFeature failed (winerror {c.get_last_error()})")
+    finally:
+        w.kernel32.CloseHandle(h)
+
+
+def write_output(path, data):
+    """WriteFile one raw HID output report (first byte = report id).
+
+    Used for the 64-byte headset-EQ packets -- those ride the interrupt OUT
+    pipe of the vendor collection, not a feature report.
+    """
+    w = _winapi()
+    c = w.ctypes
+    w.kernel32.WriteFile.restype = w.wintypes.BOOL
+    w.kernel32.WriteFile.argtypes = [w.wintypes.HANDLE, c.c_char_p, w.wintypes.DWORD,
+                                     c.POINTER(w.wintypes.DWORD), c.c_void_p]
+    h = _open(w, path, 0xC0000000) or _open(w, path, 0x40000000)   # RW, else write-only
+    if not h:
+        raise OSError(f"cannot open {path} for writing")
+    try:
+        buf = bytes(data)
+        n = w.wintypes.DWORD(0)
+        if not w.kernel32.WriteFile(h, buf, len(buf), c.byref(n), None):
+            raise OSError(f"WriteFile failed (winerror {c.get_last_error()})")
     finally:
         w.kernel32.CloseHandle(h)
 

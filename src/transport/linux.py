@@ -45,6 +45,20 @@ def control_paths(pid):
     return [path for path, _ in _hidraws(pid)]
 
 
+def vendor_paths(pid):
+    """Candidate nodes for raw output writes (headset EQ); caller tries each."""
+    return [path for path, _ in _hidraws(pid)]
+
+
+def write_output(path, data):
+    """Write one raw HID output report (first byte = report id) to a hidraw node."""
+    fd = os.open(path, os.O_RDWR)
+    try:
+        os.write(fd, bytes(data))
+    finally:
+        os.close(fd)
+
+
 def _hidiocsfeature(length):
     # _IOC(dir=READ|WRITE=3, type='H', nr=0x06, size=len)
     return (3 << 30) | (length << 16) | (ord('H') << 8) | 0x06

@@ -9,5 +9,7 @@ wheels/
 # Virtual environments
 .venv
 
-# User runtime state (per-machine startup settings)
+# User runtime state (per-machine startup settings / profiles / game map)
 docs/settings.txt
+docs/profiles.txt
+docs/games.txt

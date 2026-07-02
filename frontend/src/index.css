@@ -2,15 +2,9 @@
 
 @theme {
   --font-sans: "Inter", system-ui, sans-serif;
-  --shadow-glow: 0 0 24px -4px rgba(16, 185, 129, .5);
 }
 
-body {
-  background:
-    radial-gradient(1200px 600px at 50% -10%, rgba(16, 185, 129, .12), transparent 60%),
-    radial-gradient(900px 500px at 100% 100%, rgba(16, 185, 129, .06), transparent 55%),
-    #0a0a0a;
-}
+body { background: #0c0e0f; }
 
 .swatch { transition: transform .1s ease; }
 .swatch:hover { transform: translateY(-2px); }
@@ -30,7 +24,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: 
 input[type=range]::-moz-range-thumb { height: 16px; width: 16px; border-radius: 9999px; background: #fafafa;
   border: 2px solid #0a0a0a; cursor: pointer; }
 
-.pulse-dot { box-shadow: 0 0 7px 1px rgba(16, 185, 129, .6); }   /* static glow — no continuous animation */
+.pulse-dot { box-shadow: 0 0 4px 0 rgba(16, 185, 129, .45); }   /* static glow — no continuous animation */
 
 .tip { position: relative; }
 .tip:hover .tip-body { opacity: 1; transform: translateY(0); pointer-events: auto; }
@@ -51,9 +45,9 @@ input[type=range]::-moz-range-thumb { height: 16px; width: 16px; border-radius: 
 .panel::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 1px; border-radius: inherit;
   background: linear-gradient(90deg, transparent, rgba(255,255,255,.08), transparent); }
 
-/* Getting-started step cards: a gentle lift on hover. */
-.step { transition: transform .14s ease, border-color .14s; }
-.step:hover { transform: translateY(-1px); border-color: rgba(16,185,129,.22); }
+/* Getting-started step cards: quiet border accent on hover. */
+.step { transition: border-color .14s; }
+.step:hover { border-color: rgba(16,185,129,.22); }
 
 /* Keycaps: clean beveled keycap — thin edge + subtle top-light / bottom-shade.
    The LED color is the inline background-color; this only adds the bevel. */
