@@ -184,6 +184,44 @@ export function buildCustomFrame(method, rows, txn, led, store = true) {
   return reports;
 }
 
+// --- Kraken headset lighting (openrazer razerkraken_driver) -------------------
+// A different protocol from the 90-byte razer report: a 37-byte "request report"
+// (report id 0x04, no CRC) sent as a HID OUTPUT report to fixed RAM addresses.
+// WebHID carries the report id out-of-band, so `data` is the 36 bytes after it.
+// Mirrors core.KRAKEN_LIGHTING: [led_mode_addr, rgb_addr|null]; null = Classic
+// (on/off + spectrum, no color). Kylie = V2/TE/Ultimate/Kitty V2; Rainie = 7.1 Chroma.
+const KRAKEN_LIGHTING = {
+  0x0510: [0x172D, 0x1741], 0x0520: [0x172D, 0x1741],   // 7.1 V2, Tournament Ed. (Kylie)
+  0x0527: [0x172D, 0x1741], 0x0560: [0x172D, 0x1741],   // Ultimate, Kitty V2 (Kylie)
+  0x0504: [0x1008, 0x15DE],                             // 7.1 Chroma (Rainie)
+  0x0501: [0x1008, null],   0x0506: [0x1008, null],     // 7.1 Classic (no RGB)
+};
+
+function krakenReport(length, address, args = []) {
+  const d = new Uint8Array(36);          // the 37-byte report minus its leading report-id byte
+  d[0] = 0x40; d[1] = length;            // destination (write), arg length
+  d[2] = address >> 8; d[3] = address & 0xFF;
+  d.set(args, 4);
+  return { reportId: 0x04, data: d };
+}
+
+export function buildKraken(pid, action, rgb) {
+  // Output-report sequence for a Kraken lighting action. Returns [{reportId, data}].
+  const addrs = KRAKEN_LIGHTING[pid];
+  if (!addrs) throw new Error("this Kraken exposes no host-settable RGB (Synapse-only)");
+  const [ledAddr, rgbAddr] = addrs;
+  const effect = (v) => krakenReport(0x01, ledAddr, [v]);
+  if (action === "off") return [effect(0x00)];
+  if (action === "spectrum") return [effect(0x05)];              // static | spectrum_cycling
+  if (action === "static" || action === "breathing") {
+    const eff = action === "breathing" ? 0x0B : 0x01;           // breathing = static|single-breath|sync
+    if (rgbAddr == null) return [effect(eff)];                  // Classic can't take a color
+    const c = rgb || [0, 0, 0];
+    return [krakenReport(0x03, rgbAddr, [c[0], c[1], c[2]]), effect(eff)];
+  }
+  throw new Error(`'${action}' isn't available on Kraken headsets (use static/off/spectrum/breathing)`);
+}
+
 // --- brightness --------------------------------------------------------------
 export function brightnessReport(method, level, txn, led, store = true) {
   level = Math.max(0, Math.min(255, level | 0));

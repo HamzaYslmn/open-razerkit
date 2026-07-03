@@ -19,19 +19,29 @@ export function indexByPid(list) {
   return m;
 }
 
-export async function sendReports(cands, reports) {
+// Try each granted collection until one accepts every report; sendOne(dev, rep) does
+// the actual write (feature vs output report). `tail` appends collection-specific help.
+async function trySend(cands, reports, sendOne, tail = "") {
   if (!cands || !cands.length) throw new Error("no device granted -- click Connect");
   let last = null;
   for (const dev of cands) {
     try {
       if (!dev.opened) await dev.open();
-      for (const rep of reports) await dev.sendFeatureReport(0, rep);
+      for (const rep of reports) await sendOne(dev, rep);
       return;
     } catch (e) { last = e; }
   }
-  throw new Error(`every granted collection rejected the report (last: ${last && last.message}). ` +
-    `Chrome may be blocking this device's mouse collection (WebHID protected usage).`);
+  throw new Error(`every granted collection rejected the report (last: ${last && last.message}).${tail}`);
 }
+
+// Feature reports (report id 0) — the control protocol for every non-Kraken device.
+export const sendReports = (cands, reports) =>
+  trySend(cands, reports, (dev, rep) => dev.sendFeatureReport(0, rep),
+    ` Chrome may be blocking this device's mouse collection (WebHID protected usage).`);
+
+// Kraken lighting rides HID OUTPUT reports (report id 0x04); WebHID routes by report id.
+export const sendOutputReports = (cands, reports) =>
+  trySend(cands, reports, (dev, rep) => dev.sendReport(rep.reportId, rep.data));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const READ_TXNS = [0xFF, 0x1F, 0x3F];

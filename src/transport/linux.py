@@ -50,6 +50,12 @@ def vendor_paths(pid):
     return [path for path, _ in _hidraws(pid)]
 
 
+def output_targets(pid):
+    """[(path, None)] output targets (Kraken lighting). hidraw write() takes raw bytes,
+    so there's no report-length to match -- None means 'send as-is'."""
+    return [(path, None) for path, _ in _hidraws(pid)]
+
+
 def write_output(path, data):
     """Write one raw HID output report (first byte = report id) to a hidraw node."""
     fd = os.open(path, os.O_RDWR)

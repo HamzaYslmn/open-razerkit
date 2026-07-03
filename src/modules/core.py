@@ -172,20 +172,72 @@ def _meta(pid, method=None, txn=None, led=None):
             0x00 if led is None else led, f"unknown 1532:{pid:04x}")
 
 
-def _send(pid, label, reports):
-    """Push a report sequence to the device's control collection (tries each)."""
-    paths = transport.control_paths(pid)
-    if not paths:
+def _try_targets(pid, label, targets, reports, write_one, what):
+    """Send `reports` to each target in order; return on the first that accepts them all.
+    write_one(target, rep) does one write and raises OSError if the target rejects it."""
+    if not targets:
         raise SystemExit(f"{label}: no 1532:{pid:04x} device found (plugged in?)")
     last = None
-    for path in paths:
+    for target in targets:
         try:
             for rep in reports:
-                transport.set_feature(path, rep)
+                write_one(target, rep)
             return
         except OSError as e:
             last = e
-    raise SystemExit(f"{label}: every candidate collection rejected the report (last: {last})")
+    raise SystemExit(f"{label}: every candidate {what} (last: {last})")
+
+
+def _send(pid, label, reports):
+    """Push a report sequence to the device's control collection (tries each)."""
+    _try_targets(pid, label, transport.control_paths(pid), reports,
+                 transport.set_feature, "collection rejected the report")
+
+
+# --- Kraken headset lighting -------------------------------------------------
+# Kraken RGB rides a different protocol than every other Razer device (37-byte
+# request report, no CRC, written to fixed RAM addresses -- see build_kraken).
+# (led_mode_addr, rgb_addr or None). None = Classic: on/off + spectrum, no color.
+# Addresses per openrazer: Kylie family (V2/TE/Ultimate/Kitty V2) vs Rainie (7.1
+# Chroma). The BlackShark V2 Pro (0555) is 'kraken' too but has no RGB -> absent.
+KRAKEN_LIGHTING = {
+    0x0510: (0x172D, 0x1741), 0x0520: (0x172D, 0x1741),   # 7.1 V2, Tournament Ed. (Kylie)
+    0x0527: (0x172D, 0x1741), 0x0560: (0x172D, 0x1741),   # Ultimate, Kitty V2 (Kylie)
+    0x0504: (0x1008, 0x15DE),                             # 7.1 Chroma (Rainie)
+    0x0501: (0x1008, None),   0x0506: (0x1008, None),     # 7.1 Classic (no RGB)
+}
+
+
+def _send_output(pid, label, reports):
+    """Write raw HID output reports (Kraken lighting), trying each output collection.
+
+    Windows enforces the collection's output-report length, so pad to it; a
+    length-matching collection is tried first (Linux hidraw takes raw bytes).
+    """
+    targets = transport.output_targets(pid)
+    n = len(reports[0])
+    targets.sort(key=lambda t: 0 if t[1] in (None, n) else 1)   # exact-length / raw first
+
+    def write_one(target, rep):
+        path, outlen = target
+        data = bytes(rep)
+        if outlen and outlen > len(data):
+            data += b"\x00" * (outlen - len(data))
+        transport.write_output(path, data)
+
+    _try_targets(pid, label, targets, reports, write_one, "interface rejected the lighting write")
+
+
+def _apply_kraken(pid, label, action, rgb):
+    addrs = KRAKEN_LIGHTING.get(pid)
+    if addrs is None:
+        raise SystemExit(f"{label}: this Kraken exposes no host-settable RGB (Synapse-only)")
+    try:
+        reports = drivers.protocol.build_kraken(action, rgb, addrs[0], addrs[1])
+    except NotImplementedError as e:
+        raise SystemExit(f"{label}: {e}")
+    _send_output(pid, label, reports)
+    return label, "kraken"
 
 
 def apply(pid, action, rgb, save=True, method=None, txn=None, led=None, **opts):
@@ -194,6 +246,8 @@ def apply(pid, action, rgb, save=True, method=None, txn=None, led=None, **opts):
     opts may carry rgb2 / speed / direction for breathing-dual / reactive / wave.
     """
     method, txn, led, label = _meta(pid, method, txn, led)
+    if method == "kraken":                        # different wire protocol -> its own path
+        return _apply_kraken(pid, label, action, rgb)
     try:
         reports = drivers.build(method, action, rgb, txn, led, save, **opts)
     except NotImplementedError as e:

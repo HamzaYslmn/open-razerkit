@@ -349,6 +349,42 @@ def set_device_mode(driver, txn=0xFF):
     return [razer_report(0x00, 0x04, 0x02, bytes([0x03 if driver else 0x00, 0x00]), txn)]
 
 
+# --- Kraken headset lighting (openrazer razerkraken_driver.c) -----------------
+# A DIFFERENT frame from the 90-byte razer report: a 37-byte "request report"
+# (report_id 0x04, no CRC) written as a HID OUTPUT report. Color/effect are
+# written to fixed device RAM addresses that differ per family -- newer "Kylie"
+# Krakens (Kitty V2, Ultimate, 7.1 V2/TE) vs older "Rainie" (7.1 Chroma).
+# The caller passes the addresses (core.KRAKEN_LIGHTING owns the pid->addr map).
+# Layout: [0]=0x04 report id  [1]=0x40 destination(write)  [2]=arg len
+#         [3:5]=addr (big-endian)  [5:]=arguments. Effect byte bitfield:
+#         bit0 static  bit1 single-breath  bit2 spectrum  bit3 sync.
+def _kraken_report(length, address, args=b""):
+    r = bytearray(37)
+    r[0], r[1], r[2] = 0x04, 0x40, length
+    r[3], r[4] = address >> 8, address & 0xFF
+    r[5:5 + len(args)] = args
+    return bytes(r)
+
+
+def build_kraken(action, rgb, led_addr, rgb_addr):
+    """Reports for a Kraken lighting action. rgb_addr None = no RGB (Classic: on/off + spectrum).
+
+    Supports static / off / spectrum / breathing. Raises NotImplementedError otherwise.
+    """
+    def effect(v): return _kraken_report(0x01, led_addr, bytes([v]))
+    if action == "off":
+        return [effect(0x00)]
+    if action == "spectrum":
+        return [effect(0x05)]                                  # static | spectrum_cycling
+    if action in ("static", "breathing"):
+        eff = 0x0B if action == "breathing" else 0x01          # breathing = static|single-breath|sync
+        if rgb_addr is None:
+            return [effect(eff)]                               # Classic can't take a color
+        return [_kraken_report(0x03, rgb_addr, bytes(rgb or (0, 0, 0))), effect(eff)]
+    raise NotImplementedError(f"{action!r} isn't available on Kraken headsets "
+                              f"(use static/off/spectrum/breathing)")
+
+
 # --- Razer Blade laptop: performance mode / battery (EC via the keyboard MCU)
 # Opcodes verified on Blade 16 2024 (1532:02b7); MODEL/FIRMWARE-SPECIFIC (see
 # BLADE_VERIFIED in core). Both fan zones (1, 2) are addressed; args[0]=0x01

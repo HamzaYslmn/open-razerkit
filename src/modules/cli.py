@@ -345,6 +345,16 @@ def _selftest():
     am = pr.set_device_mode(True)[0]
     assert (am[1], am[5], am[6], am[7], am[8]) == (0xFF, 0x02, 0x00, 0x04, 0x03) and am[88] == 0x05
     assert pr.set_device_mode(False)[0][8] == 0x00 and pr.set_device_mode(False)[0][88] == 0x06
+    # Kraken headset lighting (openrazer razerkraken): 37-byte report id 0x04, no CRC
+    ks = pr.build_kraken('static', (0xff, 0x10, 0x00), 0x172D, 0x1741)
+    assert len(ks) == 2 and len(ks[0]) == 37
+    assert (ks[0][0], ks[0][1], ks[0][2], ks[0][3], ks[0][4]) == (0x04, 0x40, 0x03, 0x17, 0x41)
+    assert (ks[0][5], ks[0][6], ks[0][7]) == (0xff, 0x10, 0x00)                 # rgb
+    assert (ks[1][2], ks[1][3], ks[1][4], ks[1][5]) == (0x01, 0x17, 0x2D, 0x01)  # effect: static
+    assert pr.build_kraken('spectrum', None, 0x172D, 0x1741)[0][5] == 0x05       # static|spectrum
+    assert pr.build_kraken('off', None, 0x172D, 0x1741)[0][5] == 0x00
+    assert pr.build_kraken('breathing', (0, 0xff, 0), 0x172D, 0x1741)[1][5] == 0x0B  # static|breath|sync
+    assert len(pr.build_kraken('static', (1, 2, 3), 0x1008, None)) == 1          # Classic: effect only
     # Razer Blade laptop (ported from razerctl, verified 1532:02b7): txn 0x1f, fan/perf/charge
     bp = pr.blade_perf(1)                                              # gaming, both fan zones, auto fan
     assert len(bp) == 2 and (bp[0][1], bp[0][6], bp[0][7]) == (0x1F, 0x0D, 0x02)

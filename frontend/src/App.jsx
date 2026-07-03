@@ -4,13 +4,13 @@ import { matrixFor, zonesFor } from "./lib/matrix.js";
 import { layoutFor } from "./lib/keyLayout.js";
 import { buildReports, buildCustomFrame, brightnessReport, setDpiReport, setPollReport, setPoll2Report,
          setScrollModeReport, setScrollAccelReport, setSmartReelReport, setGameModeReport, setMacroModeReport,
-         bladePerf, bladeCharge, PERF_MODES } from "./lib/protocol.js";
+         bladePerf, bladeCharge, PERF_MODES, buildKraken } from "./lib/protocol.js";
 import MatrixPad from "./components/MatrixPad.jsx";
 import ZoneEditor from "./components/ZoneEditor.jsx";
 import DeviceControls from "./components/DeviceControls.jsx";
 import LaptopControls from "./components/LaptopControls.jsx";
 import ProfilesCard from "./components/ProfilesCard.jsx";
-import { VID, supported, listDevices, requestDevices, indexByPid, sendReports, readHz, readDpi, readInfo } from "./lib/hid.js";
+import { VID, supported, listDevices, requestDevices, indexByPid, sendReports, sendOutputReports, readHz, readDpi, readInfo } from "./lib/hid.js";
 import { clamp, hex4, rgbToHex, QUICK, parseColor, describe } from "./lib/color.js";
 import { store, persist } from "./lib/store.js";
 import { makeT, useI18n } from "./i18n/index.jsx";
@@ -68,6 +68,14 @@ export default function App() {
     return [...new Set([...(dev ? [dev.txn] : [0x3f]), 0xFF, 0x1F, 0x3F])];
   };
 
+  // Pick the wire path: Kraken headsets speak an output-report protocol, all
+  // other devices ride feature reports. (mirrors core.apply's kraken branch)
+  const lightingSend = (pid, method, action, color, txn, led) => {
+    const cands = live.current.devicesByPid.get(pid);
+    if (method === "kraken") return sendOutputReports(cands, buildKraken(pid, action, color));
+    return sendReports(cands, buildReports(method, action, color, txn, led, live.current.save));
+  };
+
   // --- apply (port of core.apply) ---
   async function applyAction(action, color) {
     const pid = live.current.currentPid;
@@ -76,11 +84,8 @@ export default function App() {
     let method, txn, led, label;
     if (dev) { method = dev.method; txn = oTxn ?? dev.txn; led = oLed ?? dev.led; label = dev.name; }
     else { method = "custom"; txn = oTxn ?? 0x3f; led = oLed ?? 0x00; label = `unknown 1532:${hex4(pid)}`; }
-    let reports;
-    try { reports = buildReports(method, action, color, txn, led, live.current.save); }
-    catch (e) { setStatus(`${label}: ${e.message}`, "err"); toast(e.message, "err"); return; }
     try {
-      await sendReports(live.current.devicesByPid.get(pid), reports);
+      await lightingSend(pid, method, action, color, txn, led);
       setStatus(t("okApply", { label, desc: describe(action, color) }), "ok");
       const key = hex4(pid);
       store.perDevice[key] = { rgb: color ? color.map(clamp) : store.perDevice[key]?.rgb, action };
@@ -119,7 +124,7 @@ export default function App() {
       const color = Array.isArray(ent.rgb) ? ent.rgb.map(clamp) : null;
       if (action === "static" && !color) continue;
       tasks.push(
-        sendReports(live.current.devicesByPid.get(pid), buildReports(method, action, color, txn, led, live.current.save))
+        lightingSend(pid, method, action, color, txn, led)
           .then(() => { store.perDevice[key] = { rgb: color ?? store.perDevice[key]?.rgb, action }; }),
       );
     }

@@ -91,7 +91,7 @@ def _open(w, path, access):
 
 
 def find_devices(pid=None):
-    """[(path, vid, pid, usage_page, feature_len)] for every Razer HID collection."""
+    """[(path, vid, pid, usage_page, feature_len, output_len)] for every Razer HID collection."""
     if sys.platform != 'win32':
         return []
     w = _winapi()
@@ -128,14 +128,15 @@ def find_devices(pid=None):
                     continue
                 if pid is not None and attrs.ProductID != pid:
                     continue
-                usage_page = feat = 0
+                usage_page = feat = outlen = 0
                 pp = c.c_void_p()
                 if w.hid.HidD_GetPreparsedData(h, c.byref(pp)):
                     caps = w.CAPS()
                     if w.hid.HidP_GetCaps(pp, c.byref(caps)) == 0x00110000:  # HIDP_STATUS_SUCCESS
                         usage_page, feat = caps.UsagePage, caps.FeatureReportByteLength
+                        outlen = caps.OutputReportByteLength
                     w.hid.HidD_FreePreparsedData(pp)
-                out.append((path, attrs.VendorID, attrs.ProductID, usage_page, feat))
+                out.append((path, attrs.VendorID, attrs.ProductID, usage_page, feat, outlen))
             finally:
                 w.kernel32.CloseHandle(h)
     finally:
@@ -146,7 +147,7 @@ def find_devices(pid=None):
 def connected():
     """{pid: has_control_collection} for every connected Razer device."""
     seen = {}
-    for _path, _vid, pid, _up, feat in find_devices():
+    for _path, _vid, pid, _up, feat, _out in find_devices():
         seen[pid] = seen.get(pid, False) or (feat == CONTROL_FEATURE_LEN)
     return seen
 
@@ -161,6 +162,11 @@ def vendor_paths(pid):
     """Collections on the vendor usage page (0xFF00) -- headset audio/EQ lives here."""
     devs = find_devices(pid)
     return [d[0] for d in devs if d[3] == 0xFF00] or [d[0] for d in devs]
+
+
+def output_targets(pid):
+    """[(path, output_report_len)] for collections that accept HID output reports (Kraken lighting)."""
+    return [(d[0], d[5]) for d in find_devices(pid) if d[5]]
 
 
 def set_feature(path, report):
