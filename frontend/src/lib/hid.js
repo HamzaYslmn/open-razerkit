@@ -39,9 +39,32 @@ export const sendReports = (cands, reports) =>
   trySend(cands, reports, (dev, rep) => dev.sendFeatureReport(0, rep),
     ` Chrome may be blocking this device's mouse collection (WebHID protected usage).`);
 
+// Bytes the descriptor declares for this output report (excluding the report-id
+// byte), or null if this device doesn't expose it. WebHID validates the buffer
+// against this length, so we pad the shorter Kraken report up to it -- the web
+// mirror of windows.output_targets reading OutputReportByteLength.
+function outputReportLen(dev, reportId) {
+  for (const c of dev.collections || [])
+    for (const r of c.outputReports || [])
+      if (r.reportId === reportId) {
+        let bits = 0;
+        for (const it of r.items || []) bits += (it.reportSize || 0) * (it.reportCount || 0);
+        return bits ? Math.ceil(bits / 8) : null;
+      }
+  return null;
+}
+
+function padForDevice(dev, rep) {
+  const len = outputReportLen(dev, rep.reportId);
+  if (len == null || len <= rep.data.length) return rep.data;
+  const out = new Uint8Array(len);
+  out.set(rep.data);
+  return out;
+}
+
 // Kraken lighting rides HID OUTPUT reports (report id 0x04); WebHID routes by report id.
 export const sendOutputReports = (cands, reports) =>
-  trySend(cands, reports, (dev, rep) => dev.sendReport(rep.reportId, rep.data));
+  trySend(cands, reports, (dev, rep) => dev.sendReport(rep.reportId, padForDevice(dev, rep)));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const READ_TXNS = [0xFF, 0x1F, 0x3F];
