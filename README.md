@@ -23,6 +23,8 @@ I got really tired of the Razer app and other things always running in the backg
 - **Windows & Linux** — picks the right HID backend automatically.
 - **Saves to the mouse's onboard memory**, so the color sticks with no software running — including on the **Viper Mini**, where Razer hides this feature.
 
+![WebUI](docs/webUI.png)
+
 ## 📦 Setup
 
 Needs [uv](https://docs.astral.sh/uv/) — it brings its own Python, so there's nothing else to install.
